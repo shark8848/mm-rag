@@ -16,6 +16,8 @@ CELERY_IO_NAME=${CELERY_IO_NAME:-ingest_io@${HOSTNAME_CMD}}
 START_CELERY=${START_CELERY:-true}
 FLOWER_PORT=${FLOWER_PORT:-5555}
 START_FLOWER=${START_FLOWER:-true}
+FLOWER_STRICT=${FLOWER_STRICT:-false}
+FLOWER_HEALTH_RETRIES=${FLOWER_HEALTH_RETRIES:-$HEALTH_RETRIES}
 
 SERVICES=($@)
 if [[ ${#SERVICES[@]} -eq 0 ]]; then
@@ -145,8 +147,11 @@ if [[ $START_FLOWER_ENABLED -eq 1 ]]; then
   ("$VENV_BIN/celery" -A app.celery_app flower --address 0.0.0.0 --port "$FLOWER_PORT" >"$FLOWER_LOG" 2>&1 & echo $! >"$RUN_DIR/flower.pid")
   echo "Flower dashboard started on port ${FLOWER_PORT}. Logs: $FLOWER_LOG"
 
-  if ! wait_for_http "Flower" "http://127.0.0.1:${FLOWER_PORT}"; then
-    "$ROOT_DIR/stop_server.sh" "${SERVICES[@]}" || true
-    exit 1
+  if ! wait_for_http "Flower" "http://127.0.0.1:${FLOWER_PORT}" "$FLOWER_HEALTH_RETRIES"; then
+    if [[ "$FLOWER_STRICT" == "true" ]]; then
+      "$ROOT_DIR/stop_server.sh" "${SERVICES[@]}" || true
+      exit 1
+    fi
+    echo "[WARN] Flower failed health check but other services remain running. Check $FLOWER_LOG." >&2
   fi
 fi
