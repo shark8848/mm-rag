@@ -1,0 +1,27 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+.env/
+venv/
+
+# Local config
+.env
+*.env
+*.env.local
+
+# Logs and caches
+*.log
+*.tmp
+*.cache/
+
+# Project data/media outputs
+data/
+media/
+
+# VS Code
+.vscode/

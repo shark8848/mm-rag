@@ -1,0 +1,118 @@
+# 多模态 RAG 流水线
+
+端到端的音/视频 RAG 样例：按照 `mm-schema.json` 规范将原始素材切分、理解、落盘，向 Elasticsearch 写入可检索分块，并同时提供 FastAPI 服务与 Gradio 控制台，方便上传、监控日志、进行混合检索与媒体播放。
+
+## 功能亮点
+
+- **多模态解析**：FFmpeg 抽帧 + Whisper/DashScope ASR，按照 `mm-schema.json` 输出 keyframe、音频、文本段落。
+- **灵活存储**：磁盘落地原始/中间/最终 JSON，Elasticsearch 存储分块并附带 `thumbnail`、`video_path`、`audio_path` 方便前端回放；若 ES 不可用自动退回内存索引。
+- **任务可观测性**：`/tasks/{task_id}` + `/logs/{task_id}`/`/logs/tail` 暴露细粒度状态，Gradio UI 通过轮询展示实时日志。
+- **交互式检索**：Gradio Chatbot 以对话形式呈现检索命中，并可直接播放命中视频/音频和浏览关键帧。
+
+## 项目结构
+
+```
+app/
+  config.py              # 全局配置、数据路径、ES/阿里百炼参数
+  logging_utils.py       # 统一日志初始化
+  models/mm_schema.py    # 与 mm-schema.json 对齐的 Pydantic 模型
+  pipeline/ingest.py     # 主处理入口（抽帧、ASR、分块、入 ES）
+  processors/            # 音视频处理模块（Whisper、DashScope、FFmpeg）
+  services/              # 存储、Elasticsearch、阿里百炼客户端封装
+  tasks.py               # 内存任务状态表
+main.py                  # FastAPI 启动文件
+ui/gradio_app.py         # 控制台：上传、日志、检索、媒体预览
+requirements.txt         # Python 依赖
+mm-schema.json           # 数据规范
+```
+
+## 数据落盘约定
+
+- `data/raw/`：原始素材副本（上传或引用的源文件）。
+- `data/intermediate/audio|video/`：抽取的 WAV、切分片段、缩略图等中间产物。
+- `data/final_instances/`：最终符合 `mm-schema.json` 的 JSON，便于审计或重放。
+- `data/logs/pipeline.log`：后端统一日志源，供 `/logs/*` 接口与 UI 读取。
+
+## 环境准备
+
+1. Python 3.10+，推荐虚拟环境：
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. 系统需安装 FFmpeg，并准备 GPU/CPU 以运行 Whisper（可按需替换为自建 ASR）。
+3. 若需对接 DashScope/阿里百炼，请在 `.env` 中配置密钥及模型名称。
+
+### `.env` 示例
+
+```env
+ES_HOST=https://localhost:9200
+ES_USER=elastic
+ES_PASSWORD=changeme
+ES_INDEX=rag-mm-segments
+ES_SKIP_TLS=true
+ES_ENABLED=false          # 无 ES 时自动退回内存索引
+
+WHISPER_MODEL=base
+ASR_LANGUAGE=zh
+EMBEDDING_MODEL=bge-m3:latest
+
+BAILIAN_API_KEY=sk-xxxx
+BAILIAN_BASE_URL=https://dashscope.aliyuncs.com
+BAILIAN_ASR_MODEL=paraformer-v1
+BAILIAN_EMBEDDING_MODEL=text-embedding-v1
+BAILIAN_MULTIMODAL_MODEL=qwen-vl-plus
+BAILIAN_LLM_MODEL=qwen3
+
+LOG_LEVEL=INFO
+```
+
+## 运行服务
+
+### FastAPI 后端
+
+```bash
+.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+- `POST /ingest` 支持基于已有文件路径的离线处理。
+- `POST /ingest/upload` 提供 multipart 上传，并将自定义参数（抽帧策略、标签等）写入任务。
+- 后台任务完成后把 `mm-schema` 结果与媒体路径落入磁盘与 ES。
+
+### Gradio 控制台
+
+```bash
+API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
+```
+
+- **上传处理** 页签：上传音/视频、选择抽帧策略（`interval`/`scene`）、查看任务状态与实时日志。
+- **混合检索** 页签：输入查询后由 Chatbot 返回命中段落，同时展示首个命中的视频、音频、关键帧画廊，便于复核。
+- UI 默认每 2 秒轮询 `/tasks/{task_id}` 与 `/logs/{task_id}`，若任务专属日志缺失则自动降级到 `/logs/tail`。
+
+## API 与日志
+
+- `POST /ingest`：基于绝对路径触发处理。
+- `POST /ingest/upload`：上传媒体并附带 `metadata` / `processing_options` JSON。
+- `GET /tasks/{task_id}`：查询任务状态与最终 `mm-schema` 结果。
+- `GET /logs/{task_id}`：返回包含 `task_id` 的最新日志片段。
+- `GET /logs/tail`：全局日志尾部（默认 200 行），供 UI 回退或手动排障。
+- `POST /query`：`{"query": "关键词", "top_k": 5}` 返回带 `thumbnail`/`audio_path`/`video_path` 的命中分块。
+- `GET /health`：基础探活。
+
+## 典型流程
+
+1. 启动 FastAPI 与 Gradio 控制台，确保 `API_BASE_URL` 指向后端。
+2. 在“上传处理”页签上传媒体，选择抽帧策略及参数，等待任务完成。
+3. 任务完成后于 `data/final_instances/` 查看结构化结果，必要时手动将生成的音频/关键帧同步到对象存储。
+4. 切换到“混合检索”，输入自然语言问题验证 ES 命中情况，并通过内置视频/音频组件回放片段。
+5. 若需要重新索引旧数据，可重新触发 `/ingest` 或编写脚本遍历 `data/raw/`。
+
+## 扩展方向
+
+- `app/services/asr.py` 可自定义云端/本地 ASR 组合策略，DashScope 异常时会自动回退 Whisper。
+- `app/services/search_client.py` 已预留 `embedding_dimension`，可快速替换为 KNN/向量数据库。
+- 在 `processors/video.py` 中追加多模态描述模型（例如 `qwen-vl-plus`），并把描述写入每个分块的 `keyframes`，供检索与 UI 使用。
+- 使用 `mm-schema.json` 做数据契约，可无缝对接更多前后端模块。
+
+借助这些组件，可以按需迭代成生产级的多模态 RAG 系统，确保数据产出始终满足 `mm-schema.json` 规范并具备良好的可观测性与交互体验。

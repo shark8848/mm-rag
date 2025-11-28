@@ -1,0 +1,738 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "通用多模态RAG分块数据规范",
+  "description": "适用于任何音频、视频内容的切片、向量化统一输出格式",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["document_id", "document_metadata", "chunks"],
+  "properties": {
+    "document_id": {
+      "type": "string",
+      "description": "文档唯一标识符"
+    },
+    "document_metadata": {
+      "type": "object",
+      "description": "文档级元数据",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "文档标题"
+        },
+        "description": {
+          "type": "string",
+          "description": "文档描述"
+        },
+        "source_info": {
+          "type": "object",
+          "description": "来源信息",
+          "properties": {
+            "file_name": {
+              "type": "string",
+              "description": "源文件名"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "文件路径"
+            },
+            "file_size": {
+              "type": "integer",
+              "description": "文件大小（字节）"
+            },
+            "format": {
+              "type": "string",
+              "description": "文件格式"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "创建时间"
+            }
+          }
+        },
+        "duration": {
+          "type": "number",
+          "description": "总时长（秒）"
+        },
+        "total_chunks": {
+          "type": "integer",
+          "description": "总分块数"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "标签列表"
+        },
+        "custom_attributes": {
+          "type": "object",
+          "description": "自定义属性（业务相关字段放这里）",
+          "additionalProperties": true
+        }
+      }
+    },
+    "document_summary": {
+      "type": "object",
+      "description": "文档级摘要",
+      "properties": {
+        "abstract": {
+          "type": "string",
+          "description": "内容摘要"
+        },
+        "key_points": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "关键要点列表"
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "主题列表"
+        },
+        "statistics": {
+          "type": "object",
+          "description": "统计信息",
+          "properties": {
+            "total_words": {
+              "type": "integer",
+              "description": "总字数"
+            },
+            "total_speakers": {
+              "type": "integer",
+              "description": "说话人数量"
+            },
+            "average_confidence": {
+              "type": "number",
+              "description": "平均置信度"
+            }
+          }
+        }
+      }
+    },
+    "structure": {
+      "type": "array",
+      "description": "文档结构（章节、段落等）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "结构单元ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["chapter", "section", "segment"],
+            "description": "结构类型"
+          },
+          "title": {
+            "type": "string",
+            "description": "标题"
+          },
+          "start_time": {
+            "type": "number",
+            "description": "起始时间（秒）"
+          },
+          "end_time": {
+            "type": "number",
+            "description": "结束时间（秒）"
+          },
+          "summary": {
+            "type": "string",
+            "description": "该结构单元的摘要"
+          },
+          "chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "包含的分块ID列表"
+          }
+        }
+      }
+    },
+    "chunks": {
+      "type": "array",
+      "description": "分块数据列表",
+      "items": {
+        "type": "object",
+        "required": ["chunk_id", "media_type", "temporal", "content", "vector"],
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "description": "分块唯一标识符"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": ["audio", "video", "audio_video"],
+            "description": "媒体类型"
+          },
+          "temporal": {
+            "type": "object",
+            "description": "时间信息",
+            "properties": {
+              "start_time": {
+                "type": "number",
+                "description": "起始时间戳（秒）"
+              },
+              "end_time": {
+                "type": "number",
+                "description": "结束时间戳（秒）"
+              },
+              "duration": {
+                "type": "number",
+                "description": "时长（秒）"
+              },
+              "chunk_index": {
+                "type": "integer",
+                "description": "分块序号（从1开始）"
+              }
+            }
+          },
+          "content": {
+            "type": "object",
+            "description": "内容数据",
+            "properties": {
+              "text": {
+                "type": "object",
+                "description": "文本内容（转录/字幕）",
+                "properties": {
+                  "full_text": {
+                    "type": "string",
+                    "description": "完整文本"
+                  },
+                  "segments": {
+                    "type": "array",
+                    "description": "分段文本（带时间戳）",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "index": {
+                          "type": "integer",
+                          "description": "段落序号"
+                        },
+                        "start_time": {
+                          "type": "number",
+                          "description": "开始时间"
+                        },
+                        "end_time": {
+                          "type": "number",
+                          "description": "结束时间"
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "文本内容"
+                        },
+                        "speaker_id": {
+                          "type": "string",
+                          "description": "说话人ID"
+                        },
+                        "confidence": {
+                          "type": "number",
+                          "description": "识别置信度（0-1）"
+                        }
+                      }
+                    }
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "语言代码（ISO 639-1）"
+                  },
+                  "word_count": {
+                    "type": "integer",
+                    "description": "字数统计"
+                  }
+                }
+              },
+              "audio": {
+                "type": "object",
+                "description": "音频数据",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "音频文件URL或路径"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "音频格式（mp3/wav/aac等）"
+                  },
+                  "duration": {
+                    "type": "number",
+                    "description": "音频时长（秒）"
+                  },
+                  "sample_rate": {
+                    "type": "integer",
+                    "description": "采样率（Hz）"
+                  },
+                  "channels": {
+                    "type": "integer",
+                    "description": "声道数"
+                  },
+                  "bitrate": {
+                    "type": "integer",
+                    "description": "比特率（kbps）"
+                  },
+                  "codec": {
+                    "type": "string",
+                    "description": "编码格式"
+                  }
+                }
+              },
+              "video": {
+                "type": "object",
+                "description": "视频数据",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "视频文件URL或路径"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "视频格式（mp4/avi/mkv等）"
+                  },
+                  "duration": {
+                    "type": "number",
+                    "description": "视频时长（秒）"
+                  },
+                  "resolution": {
+                    "type": "object",
+                    "description": "分辨率",
+                    "properties": {
+                      "width": {
+                        "type": "integer",
+                        "description": "宽度（像素）"
+                      },
+                      "height": {
+                        "type": "integer",
+                        "description": "高度（像素）"
+                      }
+                    }
+                  },
+                  "fps": {
+                    "type": "number",
+                    "description": "帧率"
+                  },
+                  "bitrate": {
+                    "type": "integer",
+                    "description": "比特率（kbps）"
+                  },
+                  "codec": {
+                    "type": "string",
+                    "description": "编码格式"
+                  },
+                  "aspect_ratio": {
+                    "type": "string",
+                    "description": "宽高比（如16:9）"
+                  }
+                }
+              },
+              "keyframes": {
+                "type": "array",
+                "description": "关键帧列表",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "timestamp": {
+                      "type": "number",
+                      "description": "关键帧时间戳（秒）"
+                    },
+                    "thumbnail_url": {
+                      "type": "string",
+                      "description": "缩略图URL"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "关键帧描述"
+                    },
+                    "scene_change": {
+                      "type": "boolean",
+                      "description": "是否场景切换"
+                    },
+                    "embedding": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "description": "关键帧图像向量"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "vector": {
+            "type": "object",
+            "description": "向量嵌入",
+            "properties": {
+              "embedding": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "向量表示"
+              },
+              "model": {
+                "type": "string",
+                "description": "嵌入模型名称"
+              },
+              "model_version": {
+                "type": "string",
+                "description": "模型版本"
+              },
+              "dimension": {
+                "type": "integer",
+                "description": "向量维度"
+              },
+              "embedding_type": {
+                "type": "string",
+                "enum": ["text", "audio", "visual", "multimodal"],
+                "description": "嵌入类型"
+              }
+            }
+          },
+          "analysis": {
+            "type": "object",
+            "description": "内容分析结果",
+            "properties": {
+              "speakers": {
+                "type": "array",
+                "description": "说话人信息",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "speaker_id": {
+                      "type": "string",
+                      "description": "说话人ID"
+                    },
+                    "speaker_name": {
+                      "type": "string",
+                      "description": "说话人姓名"
+                    },
+                    "gender": {
+                      "type": "string",
+                      "enum": ["male", "female", "unknown"],
+                      "description": "性别"
+                    },
+                    "speaking_time": {
+                      "type": "number",
+                      "description": "说话时长（秒）"
+                    }
+                  }
+                }
+              },
+              "sentiment": {
+                "type": "object",
+                "description": "情感分析",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "enum": ["positive", "negative", "neutral"],
+                    "description": "情感标签"
+                  },
+                  "score": {
+                    "type": "number",
+                    "description": "情感分数（-1到1）"
+                  }
+                }
+              },
+              "entities": {
+                "type": "array",
+                "description": "命名实体识别",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "实体文本"
+                    },
+                    "type": {
+                      "type": "string",
+                      "description": "实体类型"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "description": "置信度（0-1）"
+                    }
+                  }
+                }
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "关键词列表"
+              },
+              "topics": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "主题列表"
+              },
+              "visual_objects": {
+                "type": "array",
+                "description": "视觉对象检测",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "对象标签"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "description": "检测置信度"
+                    },
+                    "bounding_box": {
+                      "type": "object",
+                      "description": "边界框",
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "description": "左上角X坐标"
+                        },
+                        "y": {
+                          "type": "integer",
+                          "description": "左上角Y坐标"
+                        },
+                        "width": {
+                          "type": "integer",
+                          "description": "宽度"
+                        },
+                        "height": {
+                          "type": "integer",
+                          "description": "高度"
+                        }
+                      }
+                    },
+                    "timestamp": {
+                      "type": "number",
+                      "description": "出现时间戳"
+                    }
+                  }
+                }
+              },
+              "faces": {
+                "type": "array",
+                "description": "人脸检测",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "face_id": {
+                      "type": "string",
+                      "description": "人脸ID"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "description": "检测置信度"
+                    },
+                    "attributes": {
+                      "type": "object",
+                      "description": "人脸属性",
+                      "properties": {
+                        "age_range": {
+                          "type": "string",
+                          "description": "年龄范围"
+                        },
+                        "gender": {
+                          "type": "string",
+                          "description": "性别"
+                        },
+                        "emotion": {
+                          "type": "string",
+                          "description": "表情"
+                        }
+                      }
+                    },
+                    "bounding_box": {
+                      "type": "object",
+                      "description": "人脸框位置"
+                    },
+                    "timestamp": {
+                      "type": "number",
+                      "description": "出现时间戳"
+                    }
+                  }
+                }
+              },
+              "ocr_texts": {
+                "type": "array",
+                "description": "OCR文字识别",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "识别的文字"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "description": "识别置信度"
+                    },
+                    "bounding_box": {
+                      "type": "object",
+                      "description": "文字区域位置"
+                    },
+                    "timestamp": {
+                      "type": "number",
+                      "description": "出现时间戳"
+                    },
+                    "language": {
+                      "type": "string",
+                      "description": "文字语言"
+                    }
+                  }
+                }
+              },
+              "scene_description": {
+                "type": "string",
+                "description": "场景描述"
+              },
+              "audio_events": {
+                "type": "array",
+                "description": "音频事件检测",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "event_type": {
+                      "type": "string",
+                      "description": "事件类型（如音乐、掌声、噪音等）"
+                    },
+                    "start_time": {
+                      "type": "number",
+                      "description": "开始时间"
+                    },
+                    "end_time": {
+                      "type": "number",
+                      "description": "结束时间"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "description": "检测置信度"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "quality_metrics": {
+            "type": "object",
+            "description": "质量指标",
+            "properties": {
+              "audio_quality": {
+                "type": "string",
+                "enum": ["excellent", "good", "fair", "poor"],
+                "description": "音频质量"
+              },
+              "video_quality": {
+                "type": "string",
+                "enum": ["excellent", "good", "fair", "poor"],
+                "description": "视频质量"
+              },
+              "transcription_confidence": {
+                "type": "number",
+                "description": "转录平均置信度"
+              },
+              "noise_level": {
+                "type": "string",
+                "enum": ["very_low", "low", "medium", "high", "very_high"],
+                "description": "噪音水平"
+              },
+              "clarity_score": {
+                "type": "number",
+                "description": "清晰度评分（0-1）"
+              }
+            }
+          },
+          "relations": {
+            "type": "object",
+            "description": "关联关系",
+            "properties": {
+              "previous_chunk_id": {
+                "type": "string",
+                "description": "前一分块ID"
+              },
+              "next_chunk_id": {
+                "type": "string",
+                "description": "后一分块ID"
+              },
+              "parent_structure_id": {
+                "type": "string",
+                "description": "所属结构单元ID"
+              },
+              "related_chunk_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "相关分块ID列表"
+              }
+            }
+          },
+          "processing": {
+            "type": "object",
+            "description": "处理信息",
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "处理时间"
+              },
+              "pipeline_version": {
+                "type": "string",
+                "description": "处理管道版本"
+              },
+              "processing_time": {
+                "type": "number",
+                "description": "处理耗时（秒）"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["success", "partial", "failed"],
+                "description": "处理状态"
+              },
+              "steps": {
+                "type": "array",
+                "description": "处理步骤",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "step_name": {
+                      "type": "string",
+                      "description": "步骤名称"
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "步骤状态"
+                    },
+                    "duration": {
+                      "type": "number",
+                      "description": "耗时（秒）"
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "使用的模型"
+                    }
+                  }
+                }
+              },
+              "checksum": {
+                "type": "string",
+                "description": "内容校验和"
+              }
+            }
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "自定义字段（业务特定数据）",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}
