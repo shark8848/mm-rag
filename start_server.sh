@@ -8,9 +8,20 @@ LOG_DIR="$ROOT_DIR/data/logs"
 UVICORN_PORT=${UVICORN_PORT:-8000}
 GRADIO_PORT=${GRADIO_PORT:-7860}
 HEALTH_RETRIES=${HEALTH_RETRIES:-30}
+CELERY_CPU_QUEUE=${CELERY_CPU_QUEUE:-ingest_cpu}
+CELERY_IO_QUEUE=${CELERY_IO_QUEUE:-ingest_io}
+HOSTNAME_CMD=$(hostname 2>/dev/null || echo "localhost")
+CELERY_CPU_NAME=${CELERY_CPU_NAME:-ingest_cpu@${HOSTNAME_CMD}}
+CELERY_IO_NAME=${CELERY_IO_NAME:-ingest_io@${HOSTNAME_CMD}}
+START_CELERY=${START_CELERY:-true}
 
 if [[ ! -x "$VENV_BIN/uvicorn" ]]; then
   echo "[ERROR] Could not find .venv/bin/uvicorn. Please create the virtual environment and install dependencies." >&2
+  exit 1
+fi
+
+if [[ "$START_CELERY" == "true" && ! -x "$VENV_BIN/celery" ]]; then
+  echo "[ERROR] START_CELERY=true but .venv/bin/celery not found. Install dependencies or set START_CELERY=false." >&2
   exit 1
 fi
 
@@ -46,6 +57,8 @@ fuser -k "${UVICORN_PORT}/tcp" >/dev/null 2>&1 || true
 
 UVICORN_LOG="$LOG_DIR/uvicorn.log"
 GRADIO_LOG="$LOG_DIR/gradio.log"
+CELERY_CPU_LOG="$LOG_DIR/celery_cpu.log"
+CELERY_IO_LOG="$LOG_DIR/celery_io.log"
 
 # Start FastAPI (Uvicorn) in the background with log redirection.
 ("$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$UVICORN_PORT" >"$UVICORN_LOG" 2>&1 & echo $! >"$RUN_DIR/uvicorn.pid")
@@ -63,4 +76,12 @@ echo "Gradio UI started on port ${GRADIO_PORT}. Logs: $GRADIO_LOG"
 if ! wait_for_http "Gradio" "http://127.0.0.1:${GRADIO_PORT}"; then
   "$ROOT_DIR/stop_server.sh" || true
   exit 1
+fi
+
+if [[ "$START_CELERY" == "true" ]]; then
+  ("$VENV_BIN/celery" -A app.celery_app worker -Q "$CELERY_CPU_QUEUE" -n "$CELERY_CPU_NAME" -l info >"$CELERY_CPU_LOG" 2>&1 & echo $! >"$RUN_DIR/celery_cpu.pid")
+  echo "Celery CPU worker started on queue ${CELERY_CPU_QUEUE}. Logs: $CELERY_CPU_LOG"
+
+  ("$VENV_BIN/celery" -A app.celery_app worker -Q "$CELERY_IO_QUEUE" -n "$CELERY_IO_NAME" -l info >"$CELERY_IO_LOG" 2>&1 & echo $! >"$RUN_DIR/celery_io.pid")
+  echo "Celery IO worker started on queue ${CELERY_IO_QUEUE}. Logs: $CELERY_IO_LOG"
 fi

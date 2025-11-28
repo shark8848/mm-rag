@@ -3,7 +3,11 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RUN_DIR="$ROOT_DIR/.run"
+STOP_CELERY=${STOP_CELERY:-true}
 PIDS=(uvicorn gradio)
+if [[ "$STOP_CELERY" == "true" ]]; then
+  PIDS+=(celery_cpu celery_io)
+fi
 
 stop_pid() {
   local name=$1
