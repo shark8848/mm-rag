@@ -22,4 +22,4 @@ celery_app.conf.update(
     worker_hijack_root_logger=False,
 )
 
-celery_app.autodiscover_tasks(["app.pipeline"])
+celery_app.autodiscover_tasks(["app.pipeline"], related_name="celery_tasks")
