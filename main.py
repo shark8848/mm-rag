@@ -20,7 +20,7 @@ from app.tasks import task_store
 configure_logging()
 api_logger = get_pipeline_logger("pipeline.api")
 
-app = FastAPI(title="Multimodal RAG Pipeline", version="1.0.0")
+app = FastAPI(title="Multimodal RAG Pipeline", version="0.1.0")
 
 
 class ProcessingOptions(BaseModel):

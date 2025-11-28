@@ -157,3 +157,11 @@ API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
 - 使用 `mm-schema.json` 做数据契约，可无缝对接更多前后端模块。
 
 借助这些组件，可以按需迭代成生产级的多模态 RAG 系统，确保数据产出始终满足 `mm-schema.json` 规范并具备良好的可观测性与交互体验。
+
+## 版本历史与下载
+
+| 版本 | 日期 | 亮点 | 下载 |
+| --- | --- | --- | --- |
+| v0.1.0 | 2025-11-28 | 首次公开版本：包含 FastAPI + Gradio、MinIO 同步、启动脚本与任务/日志 API。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.1.0.zip) |
+
+更多细节参见 `CHANGELOG.md`，新的标签发布后可在 [Releases 页面](https://github.com/shark8848/mm-rag/releases) 下载对应包。

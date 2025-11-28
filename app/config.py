@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     chunk_max_duration: float = 30.0
     frame_interval_seconds: float = 2.0
     embedding_dimension: int = 1024
-    pipeline_version: str = "v1.0.0"
+    pipeline_version: str = "v0.1.0"
     whisper_model: str = Field("base", env="WHISPER_MODEL")
     asr_language: str | None = Field(None, env="ASR_LANGUAGE")
     bailian_api_key: str | None = Field(None, env="BAILIAN_API_KEY")

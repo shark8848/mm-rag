@@ -1,0 +1,9 @@
+# 变更日志
+
+## v0.1.0 · 2025-11-28
+
+- 首次开源发布，包含 FastAPI 后端与 Gradio 控制台。
+- 新增 `start_server.sh` / `stop_server.sh`，一键管理 FastAPI + Gradio 进程，并自动做健康检查。
+- 音频抽取、关键帧 JPEG 与最终 JSON 自动同步到 MinIO，方便对象存储对接。
+- 任务状态在 `/tasks/{task_id}` 中实时查询，并提供 `/logs/{task_id}`、`/logs/tail` 用于排障。
+- README 更新了部署指南与 MinIO 配置说明。
