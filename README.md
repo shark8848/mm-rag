@@ -9,6 +9,18 @@
 - **任务可观测性**：`/tasks/{task_id}` + `/logs/{task_id}`/`/logs/tail` 暴露细粒度状态，Gradio UI 通过轮询展示实时日志。
 - **交互式检索**：Gradio Chatbot 以对话形式呈现检索命中，并可直接播放命中视频/音频和浏览关键帧。
 
+## 核心组件清单
+
+| 组件 | 作用 |
+| --- | --- |
+| FastAPI | 暴露 `/ingest`、`/query`、`/logs` 等服务端 API，并调度后台任务 |
+| Uvicorn | 作为 ASGI 服务器运行 FastAPI 应用 |
+| FFmpeg | 完成音频抽取、抽帧、场景切分等多媒体处理 |
+| Whisper (openai-whisper) | 本地 ASR 备份方案，DashScope 不可用时回退 |
+| DashScope (阿里百炼) | Paraformer ASR、向量、Qwen-VL/LLM 能力的云端入口 |
+| Elasticsearch 8.x | 持久化检索分块，支持文本+媒体路径返回 |
+| Gradio | 提供上传、日志监控、混合检索与媒体播放的前端控制台 |
+
 ## 项目结构
 
 ```
