@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO", env="LOG_LEVEL")
     video_max_keyframes: int = Field(60, env="VIDEO_MAX_KEYFRAMES")
 
+    celery_broker_url: str = Field("redis://localhost:6379/0", env="CELERY_BROKER_URL")
+    celery_result_backend: str = Field("redis://localhost:6379/1", env="CELERY_RESULT_BACKEND")
+    celery_default_queue: str = Field("ingest_cpu", env="CELERY_DEFAULT_QUEUE")
+    celery_io_queue: str = Field("ingest_io", env="CELERY_IO_QUEUE")
+    celery_cpu_queue: str = Field("ingest_cpu", env="CELERY_CPU_QUEUE")
+
     minio_enabled: bool = Field(False, env="MINIO_ENABLED")
     minio_endpoint: str = Field("http://localhost:9000", env="MINIO_ENDPOINT")
     minio_access_key: str | None = Field("minioadmin", env="MINIO_ACCESS_KEY")

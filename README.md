@@ -6,7 +6,7 @@
 
 - **多模态解析**：FFmpeg 抽帧 + Whisper/DashScope ASR，按照 `mm-schema.json` 输出 keyframe、音频、文本段落。
 - **灵活存储**：磁盘落地原始/中间/最终 JSON，Elasticsearch 存储分块并附带 `thumbnail`、`video_path`、`audio_path` 方便前端回放；若 ES 不可用自动退回内存索引。
-- **任务可观测性**：`/tasks/{task_id}` + `/logs/{task_id}`/`/logs/tail` 暴露细粒度状态，Gradio UI 通过轮询展示实时日志。
+- **任务可观测性**：基于 Celery + Redis 的异步队列，`/tasks/{task_id}` 会实时拉取 Celery 状态，另有 `/logs/{task_id}`/`/logs/tail` 暴露细粒度日志。
 - **交互式检索**：Gradio Chatbot 以对话形式呈现检索命中，并可直接播放命中视频/音频和浏览关键帧。
 - **对象存储同步（可选）**：打开 `MINIO_ENABLED=true` 后，`data/` 下的原始文件、中间产物、最终 JSON 会自动镜像到 MinIO 指定 bucket。
 
@@ -55,8 +55,9 @@ mm-schema.json           # 数据规范
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
-2. 系统需安装 FFmpeg，并准备 GPU/CPU 以运行 Whisper（可按需替换为自建 ASR）。
-3. 若需对接 DashScope/阿里百炼，请在 `.env` 中配置密钥及模型名称。
+2. 安装并运行 Redis（默认使用 `redis://localhost:6379/{0,1}` 作为 Celery broker/result backend）。
+3. 系统需安装 FFmpeg，并准备 GPU/CPU 以运行 Whisper（可按需替换为自建 ASR）。
+4. 若需对接 DashScope/阿里百炼，请在 `.env` 中配置密钥及模型名称。
 
 ### `.env` 示例
 
@@ -87,6 +88,13 @@ MINIO_ENDPOINT=http://localhost:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=mm-rag
+
+# Celery / Redis
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+CELERY_DEFAULT_QUEUE=ingest_cpu
+CELERY_IO_QUEUE=ingest_io
+CELERY_CPU_QUEUE=ingest_cpu
 ```
 
 ## 运行服务
@@ -111,6 +119,20 @@ MINIO_BUCKET=mm-rag
 ./stop_server.sh
 ```
 
+### Celery Worker（必需）
+
+Pipeline 已拆分为原子级 Celery 任务，需至少启动一个 CPU worker 与一个 IO worker：
+
+```bash
+# CPU/GPU 密集型（ASR、抽帧、摘要）
+.venv/bin/celery -A app.celery_app worker -Q ingest_cpu -n ingest_cpu@%h -l info
+
+# IO 密集型（文件落地、元数据、MinIO 同步）
+.venv/bin/celery -A app.celery_app worker -Q ingest_io -n ingest_io@%h -l info
+```
+
+可按节点资源横向扩展 worker 数量；Flower 或 Prometheus exporter 可用于观测运行和队列堆积情况。
+
 ### Gradio 控制台
 
 ```bash
@@ -130,6 +152,18 @@ API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
 - `GET /logs/tail`：全局日志尾部（默认 200 行），供 UI 回退或手动排障。
 - `POST /query`：`{"query": "关键词", "top_k": 5}` 返回带 `thumbnail`/`audio_path`/`video_path` 的命中分块。
 - `GET /health`：基础探活。
+
+### 原子化任务编排
+
+Celery workflow 链路：
+
+1. `pipeline.build_metadata`（IO 队列）：读取文件属性、拼装 `DocumentMetadata`。
+2. `pipeline.generate_chunks`（CPU 队列）：根据媒体类型抽帧/抽音并构建分块。
+3. `pipeline.generate_summary`（CPU 队列）：基于 chunks 文本调用阿里百炼/Qwen 生成摘要。
+4. `pipeline.persist_artifacts`（IO 队列）：生成 `Document`、写入 `data/final_instances/*.json` 并同步 MinIO。
+5. `pipeline.index_document`（CPU 队列）：写入 Elasticsearch/内存索引，Celery 任务结果即最终 JSON。
+
+`/tasks/{task_id}` 会实时查询 Celery AsyncResult（queued → started → success/failed），失败时返回 Celery 的异常描述，成功时附带最终 `mm-schema` JSON。
 
 ## MinIO 同步说明
 

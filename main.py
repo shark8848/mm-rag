@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.logging_utils import configure_logging, get_pipeline_logger
-from app.pipeline.ingest import UnsupportedMediaType, process_document
+from app.pipeline.celery_tasks import enqueue_pipeline
 from app.services import storage
 from app.services.search_client import search_client
 from app.tasks import task_store
@@ -72,28 +73,8 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-def _background_run(
-    task_id: str,
-    source_path: Path,
-    media_type: str,
-    metadata: dict,
-    processing_options: Optional[dict] = None,
-) -> None:
-    api_logger.info("Task %s started", task_id)
-    try:
-        document = process_document(source_path, media_type, metadata, processing_options)
-        task_store.update(task_id, "completed", result=document.model_dump())
-        api_logger.info("Task %s completed successfully", task_id)
-    except UnsupportedMediaType as exc:
-        task_store.update(task_id, "failed", detail=str(exc))
-        api_logger.warning("Task %s failed due to unsupported media: %s", task_id, exc)
-    except Exception as exc:  # pylint: disable=broad-except
-        task_store.update(task_id, "failed", detail=str(exc))
-        api_logger.exception("Task %s encountered an unexpected error", task_id)
-
-
 @app.post("/ingest", response_model=TaskResponse)
-def ingest(request: IngestRequest, background_tasks: BackgroundTasks) -> TaskResponse:
+def ingest(request: IngestRequest) -> TaskResponse:
     task_id = request.metadata.document_id or str(uuid.uuid4())
     task_store.create(task_id)
 
@@ -106,20 +87,22 @@ def ingest(request: IngestRequest, background_tasks: BackgroundTasks) -> TaskRes
     metadata.setdefault("document_id", task_id)
 
     proc_opts = request.processing_options.model_dump() if request.processing_options else None
-    background_tasks.add_task(
-        _background_run,
-        task_id,
-        raw_copy,
-        request.media_type,
-        metadata,
-        proc_opts,
-    )
-    return TaskResponse(task_id=task_id, status="pending")
+    context = {
+        "document_id": task_id,
+        "media_type": request.media_type,
+        "source_path": str(raw_copy),
+        "user_metadata": metadata,
+        "processing_options": proc_opts or {},
+        "started_at": time.time(),
+    }
+    async_result = enqueue_pipeline(context)
+    task_store.attach_celery(task_id, async_result.id)
+    task_store.update(task_id, "queued")
+    return TaskResponse(task_id=task_id, status="queued")
 
 
 @app.post("/ingest/upload", response_model=TaskResponse)
 def ingest_upload(
-    background_tasks: BackgroundTasks,
     media_type: Literal["audio", "video"] = Form(...),
     metadata: str = Form("{}"),
     file: UploadFile = File(...),
@@ -142,15 +125,18 @@ def ingest_upload(
             proc_opts = json.loads(processing_options)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail="Invalid processing_options JSON") from exc
-    background_tasks.add_task(
-        _background_run,
-        task_id,
-        raw_path,
-        media_type,
-        metadata_dict,
-        proc_opts,
-    )
-    return TaskResponse(task_id=task_id, status="pending")
+    context = {
+        "document_id": task_id,
+        "media_type": media_type,
+        "source_path": str(raw_path),
+        "user_metadata": metadata_dict,
+        "processing_options": proc_opts or {},
+        "started_at": time.time(),
+    }
+    async_result = enqueue_pipeline(context)
+    task_store.attach_celery(task_id, async_result.id)
+    task_store.update(task_id, "queued")
+    return TaskResponse(task_id=task_id, status="queued")
 
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse)

@@ -1,5 +1,11 @@
 # 变更日志
 
+## [Unreleased]
+
+- 引入 Celery + Redis 队列，将流水线拆分为 `build_metadata`/`generate_chunks`/`generate_summary`/`persist_artifacts`/`index_document` 五个原子任务。
+- FastAPI `/ingest` 统一交给 Celery workflow，`/tasks/{id}` 根据 Celery 状态返回结果。
+- README/.env.example 补充 Redis/Celery 部署指引。
+
 ## v0.1.0 · 2025-11-28
 
 - 首次开源发布，包含 FastAPI 后端与 Gradio 控制台。
