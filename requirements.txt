@@ -10,3 +10,4 @@ gradio>=4.40.0
 minio>=7.2.0
 celery[redis]>=5.4.0
 redis>=5.0.0
+flower>=2.0.0

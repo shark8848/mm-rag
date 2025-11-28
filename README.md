@@ -141,6 +141,16 @@ Pipeline 已拆分为原子级 Celery 任务，需至少启动一个 CPU worker 
 
 可按节点资源横向扩展 worker 数量；Flower 或 Prometheus exporter 可用于观测运行和队列堆积情况。
 
+#### Flower 监控（可选）
+
+安装依赖后，可借助 Flower 实时查看任务、队列与 worker 状态：
+
+```bash
+.venv/bin/celery -A app.celery_app flower --address 0.0.0.0 --port 5555
+```
+
+浏览器访问 `http://localhost:5555` 即可查看 Celery 任务曲线和失败重试细节。Flower 会复用 `.env` 中配置的 Redis broker/result backend，无需额外参数。
+
 ### Gradio 控制台
 
 ```bash
