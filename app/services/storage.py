@@ -113,6 +113,15 @@ def _ensure_dir(path: Path) -> Path:
     return path
 
 
+def sync_artifact(local_path: Path, fallback_prefix: str = "intermediate") -> None:
+    """Best-effort MinIO sync for an already materialized artifact."""
+
+    if not local_path.exists():
+        logger.debug("Skipping MinIO sync for missing artifact %s", local_path)
+        return
+    _sync_to_minio(local_path, fallback_prefix)
+
+
 def save_raw_upload(upload: UploadFile, document_id: str) -> Path:
     """Persist the original user upload to raw storage."""
 
@@ -145,7 +154,7 @@ def persist_intermediate(content: BinaryIO, target_dir: Path, file_name: str) ->
             shutil.copyfileobj(content, buffer)
     logger.debug("Persisted intermediate artifact %s", target_path)
     prefix = _relative_to_data_root(target_dir) or "intermediate"
-    _sync_to_minio(target_path, prefix)
+    sync_artifact(target_path, prefix)
     return target_path
 
 

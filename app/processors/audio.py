@@ -12,6 +12,7 @@ from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import AudioContent, Chunk, ChunkContent, TemporalInfo, TextContent, TextSegment, VectorInfo
 from app.services.asr import transcribe
 from app.services.bailian import bailian_client
+from app.services.storage import sync_artifact
 
 
 def _deterministic_random(seed: str) -> random.Random:
@@ -88,11 +89,13 @@ def _prepare_audio_track(source_path: Path, document_id: str) -> Path:
     ]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sync_artifact(target_path, "intermediate/audio")
         return target_path
     except Exception as exc:  # pragma: no cover - ffmpeg optional
         logger.warning("Audio extraction failed, falling back to source: %s", exc)
         try:
             shutil.copy(source_path, target_path)
+            sync_artifact(target_path, "intermediate/audio")
             return target_path
         except Exception as copy_exc:  # pragma: no cover - best-effort fallback
             logger.warning("Audio copy fallback failed: %s", copy_exc)

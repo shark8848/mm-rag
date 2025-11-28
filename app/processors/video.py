@@ -11,6 +11,7 @@ from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import Chunk, ChunkContent, Keyframe, Resolution, VideoContent
 from app.processors.audio import build_audio_chunks
 from app.services.bailian import bailian_client
+from app.services.storage import sync_artifact
 
 
 logger = get_pipeline_logger("pipeline.video")
@@ -167,6 +168,8 @@ def _extract_frames(
         return []
 
     limited_paths = frame_paths[: settings.video_max_keyframes]
+    for frame_path in limited_paths:
+        sync_artifact(frame_path, "intermediate/video")
 
     if strategy == "scene":
         if len(limited_paths) == 1:

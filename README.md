@@ -135,9 +135,10 @@ API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
 
 - 设置 `MINIO_ENABLED=true` 且提供 `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET` 后，`app/services/storage.py` 会在以下场景同步文件到 MinIO：
   - `save_raw_upload` / `save_raw_path`：原始媒体副本 (`data/raw/`).
-  - `persist_intermediate`：如抽取的 WAV、关键帧等 (`data/intermediate/...`).
+  - `persist_intermediate`：所有 `data/intermediate/...` 产物，如 `audio/<doc>.wav`、`video/<doc>/frame_XXXX.jpg`。
   - `persist_json`：最终 `data/final_instances/*.json`。
 - 同步路径默认复用 `data/` 下的相对结构，例如 `data/intermediate/audio/foo.wav` 会写成对象 `intermediate/audio/foo.wav`。
+- 处理完成后可在 MinIO 控制台检索 `intermediate/audio/` 与 `intermediate/video/` 前缀，确认音频与关键帧已经上传。
 - MinIO 端可使用 `MINIO_OPTS="--address :9000 --console-address :9001"` 等参数启动，默认账号/密码为 `minioadmin/minioadmin`。
 
 ## 典型流程
