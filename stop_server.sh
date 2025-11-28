@@ -4,8 +4,50 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RUN_DIR="$ROOT_DIR/.run"
 STOP_CELERY=${STOP_CELERY:-true}
-PIDS=(uvicorn gradio)
-if [[ "$STOP_CELERY" == "true" ]]; then
+SERVICES=($@)
+if [[ ${#SERVICES[@]} -eq 0 ]]; then
+  SERVICES=(all)
+fi
+
+STOP_FASTAPI=0
+STOP_GRADIO=0
+SELECT_CELERY=0
+for svc in "${SERVICES[@]}"; do
+  case "$svc" in
+    all)
+      STOP_FASTAPI=1
+      STOP_GRADIO=1
+      SELECT_CELERY=1
+      ;;
+    api|uvicorn|fastapi)
+      STOP_FASTAPI=1
+      ;;
+    gradio|ui)
+      STOP_GRADIO=1
+      ;;
+    celery|workers)
+      SELECT_CELERY=1
+      ;;
+    *)
+      echo "[ERROR] Unknown service '$svc'. Choose from all|uvicorn|gradio|celery." >&2
+      exit 1
+      ;;
+  esac
+done
+
+STOP_CELERY_ENABLED=0
+if [[ "$STOP_CELERY" == "true" && $SELECT_CELERY -eq 1 ]]; then
+  STOP_CELERY_ENABLED=1
+fi
+
+PIDS=()
+if [[ $STOP_FASTAPI -eq 1 ]]; then
+  PIDS+=(uvicorn)
+fi
+if [[ $STOP_GRADIO -eq 1 ]]; then
+  PIDS+=(gradio)
+fi
+if [[ $STOP_CELERY_ENABLED -eq 1 ]]; then
   PIDS+=(celery_cpu celery_io)
 fi
 
@@ -35,7 +77,9 @@ if [[ -d "$RUN_DIR" ]]; then
   done
 fi
 
-# As a fallback, ensure the FastAPI port is free.
-fuser -k 8000/tcp >/dev/null 2>&1 || true
+if [[ $STOP_FASTAPI -eq 1 ]]; then
+  # As a fallback, ensure the FastAPI port is free.
+  fuser -k 8000/tcp >/dev/null 2>&1 || true
+fi
 
 echo "Services stopped."

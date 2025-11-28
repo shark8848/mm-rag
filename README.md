@@ -117,6 +117,12 @@ CELERY_CPU_QUEUE=ingest_cpu
 
 # 停止全部后台服务
 ./stop_server.sh
+
+# 仅启动 Celery worker（默认也会停止历史 worker）
+./start_server.sh celery
+
+# 仅停止 Gradio UI
+./stop_server.sh gradio
 ```
 
 > 提示：脚本默认会拉起 `celery_cpu` 与 `celery_io` 两个 worker，并在 `./stop_server.sh` 中一并关闭。若需要手动管理 Celery，可在执行脚本前导出 `START_CELERY=false`（或 `STOP_CELERY=false`）跳过自动管理，然后按照下述命令自行维护。
