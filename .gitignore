@@ -25,3 +25,6 @@ media/
 
 # VS Code
 .vscode/
+
+# Runtime pid/log directories
+.run/
