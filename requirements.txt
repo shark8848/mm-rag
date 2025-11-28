@@ -7,3 +7,4 @@ elasticsearch>=8.13.0
 openai-whisper>=20231117
 requests>=2.32.0
 gradio>=4.40.0
+minio>=7.2.0

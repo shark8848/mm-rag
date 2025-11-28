@@ -8,6 +8,7 @@
 - **灵活存储**：磁盘落地原始/中间/最终 JSON，Elasticsearch 存储分块并附带 `thumbnail`、`video_path`、`audio_path` 方便前端回放；若 ES 不可用自动退回内存索引。
 - **任务可观测性**：`/tasks/{task_id}` + `/logs/{task_id}`/`/logs/tail` 暴露细粒度状态，Gradio UI 通过轮询展示实时日志。
 - **交互式检索**：Gradio Chatbot 以对话形式呈现检索命中，并可直接播放命中视频/音频和浏览关键帧。
+- **对象存储同步（可选）**：打开 `MINIO_ENABLED=true` 后，`data/` 下的原始文件、中间产物、最终 JSON 会自动镜像到 MinIO 指定 bucket。
 
 ## 核心组件清单
 
@@ -20,6 +21,7 @@
 | DashScope (阿里百炼) | Paraformer ASR、向量、Qwen-VL/LLM 能力的云端入口 |
 | Elasticsearch 8.x | 持久化检索分块，支持文本+媒体路径返回 |
 | Gradio | 提供上传、日志监控、混合检索与媒体播放的前端控制台 |
+| MinIO | 可选对象存储，用于同步 `data/` 目录的原始/中间/最终产物 |
 
 ## 项目结构
 
@@ -78,6 +80,13 @@ BAILIAN_MULTIMODAL_MODEL=qwen-vl-plus
 BAILIAN_LLM_MODEL=qwen3
 
 LOG_LEVEL=INFO
+
+# 可选 MinIO 同步
+MINIO_ENABLED=false
+MINIO_ENDPOINT=http://localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=mm-rag
 ```
 
 ## 运行服务
@@ -111,6 +120,15 @@ API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
 - `GET /logs/tail`：全局日志尾部（默认 200 行），供 UI 回退或手动排障。
 - `POST /query`：`{"query": "关键词", "top_k": 5}` 返回带 `thumbnail`/`audio_path`/`video_path` 的命中分块。
 - `GET /health`：基础探活。
+
+## MinIO 同步说明
+
+- 设置 `MINIO_ENABLED=true` 且提供 `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET` 后，`app/services/storage.py` 会在以下场景同步文件到 MinIO：
+  - `save_raw_upload` / `save_raw_path`：原始媒体副本 (`data/raw/`).
+  - `persist_intermediate`：如抽取的 WAV、关键帧等 (`data/intermediate/...`).
+  - `persist_json`：最终 `data/final_instances/*.json`。
+- 同步路径默认复用 `data/` 下的相对结构，例如 `data/intermediate/audio/foo.wav` 会写成对象 `intermediate/audio/foo.wav`。
+- MinIO 端可使用 `MINIO_OPTS="--address :9000 --console-address :9001"` 等参数启动，默认账号/密码为 `minioadmin/minioadmin`。
 
 ## 典型流程
 

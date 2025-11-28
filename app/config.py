@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO", env="LOG_LEVEL")
     video_max_keyframes: int = Field(60, env="VIDEO_MAX_KEYFRAMES")
 
+    minio_enabled: bool = Field(False, env="MINIO_ENABLED")
+    minio_endpoint: str = Field("http://localhost:9000", env="MINIO_ENDPOINT")
+    minio_access_key: str | None = Field("minioadmin", env="MINIO_ACCESS_KEY")
+    minio_secret_key: str | None = Field("minioadmin", env="MINIO_SECRET_KEY")
+    minio_bucket: str = Field("mm-rag", env="MINIO_BUCKET")
+
+    data_root: Path = DATA_DIR
     raw_storage_dir: Path = BASE_DIR / "data" / "raw"
     audio_intermediate_dir: Path = BASE_DIR / "data" / "intermediate" / "audio"
     video_intermediate_dir: Path = BASE_DIR / "data" / "intermediate" / "video"
