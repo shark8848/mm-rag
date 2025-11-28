@@ -128,7 +128,7 @@ CELERY_CPU_QUEUE=ingest_cpu
 ./stop_server.sh gradio
 ```
 
-> 提示：脚本默认会拉起 `celery_cpu`/`celery_io` worker 以及 Flower 监控，并在 `./stop_server.sh` 中一并关闭。若需要手动管理，可在执行脚本前导出 `START_CELERY=false`、`START_FLOWER=false`（或 `STOP_CELERY=false`、`STOP_FLOWER=false`）跳过自动管理；`FLOWER_HEALTH_RETRIES` / `FLOWER_STRICT` 可分别调整健康检查超时与是否因 Flower 失败而回滚其他服务。
+> 提示：脚本默认会拉起 `celery_cpu`/`celery_io` worker 以及 Flower 监控，并在 `./stop_server.sh` 中一并关闭。若需要手动管理，可在执行脚本前导出 `START_CELERY=false`、`START_FLOWER=false`（或 `STOP_CELERY=false`、`STOP_FLOWER=false`）跳过自动管理；`FLOWER_ADDRESS`/`FLOWER_PORT` 控制监听地址和端口，`FLOWER_HEALTH_RETRIES`/`FLOWER_STRICT` 调整健康检查与失败策略。
 
 ### Celery Worker（必需）
 

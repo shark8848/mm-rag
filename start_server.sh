@@ -18,6 +18,7 @@ FLOWER_PORT=${FLOWER_PORT:-5555}
 START_FLOWER=${START_FLOWER:-true}
 FLOWER_STRICT=${FLOWER_STRICT:-false}
 FLOWER_HEALTH_RETRIES=${FLOWER_HEALTH_RETRIES:-$HEALTH_RETRIES}
+FLOWER_ADDRESS=${FLOWER_ADDRESS:-0.0.0.0}
 
 SERVICES=($@)
 if [[ ${#SERVICES[@]} -eq 0 ]]; then
@@ -144,7 +145,7 @@ if [[ $START_CELERY_ENABLED -eq 1 ]]; then
 fi
 
 if [[ $START_FLOWER_ENABLED -eq 1 ]]; then
-  ("$VENV_BIN/celery" -A app.celery_app flower --address 0.0.0.0 --port "$FLOWER_PORT" >"$FLOWER_LOG" 2>&1 & echo $! >"$RUN_DIR/flower.pid")
+  ("$VENV_BIN/celery" -A app.celery_app flower --address="$FLOWER_ADDRESS" --port "$FLOWER_PORT" >"$FLOWER_LOG" 2>&1 & echo $! >"$RUN_DIR/flower.pid")
   echo "Flower dashboard started on port ${FLOWER_PORT}. Logs: $FLOWER_LOG"
 
   if ! wait_for_http "Flower" "http://127.0.0.1:${FLOWER_PORT}" "$FLOWER_HEALTH_RETRIES"; then
