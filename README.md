@@ -101,6 +101,16 @@ MINIO_BUCKET=mm-rag
 - `POST /ingest/upload` 提供 multipart 上传，并将自定义参数（抽帧策略、标签等）写入任务。
 - 后台任务完成后把 `mm-schema` 结果与媒体路径落入磁盘与 ES。
 
+也可以使用脚本统一管理：
+
+```bash
+# 启动 FastAPI + Gradio（日志位于 data/logs/*.log，PID 文件在 .run/）
+./start_server.sh
+
+# 停止全部后台服务
+./stop_server.sh
+```
+
 ### Gradio 控制台
 
 ```bash
