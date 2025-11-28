@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     celery_default_queue: str = Field("ingest_cpu", env="CELERY_DEFAULT_QUEUE")
     celery_io_queue: str = Field("ingest_io", env="CELERY_IO_QUEUE")
     celery_cpu_queue: str = Field("ingest_cpu", env="CELERY_CPU_QUEUE")
+    flower_address: str = Field("0.0.0.0", env="FLOWER_ADDRESS")
+    flower_port: int = Field(5555, env="FLOWER_PORT")
+    flower_health_retries: int = Field(30, env="FLOWER_HEALTH_RETRIES")
+    flower_strict: bool = Field(False, env="FLOWER_STRICT")
 
     minio_enabled: bool = Field(False, env="MINIO_ENABLED")
     minio_endpoint: str = Field("http://localhost:9000", env="MINIO_ENDPOINT")
