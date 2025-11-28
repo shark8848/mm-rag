@@ -14,6 +14,8 @@ HOSTNAME_CMD=$(hostname 2>/dev/null || echo "localhost")
 CELERY_CPU_NAME=${CELERY_CPU_NAME:-ingest_cpu@${HOSTNAME_CMD}}
 CELERY_IO_NAME=${CELERY_IO_NAME:-ingest_io@${HOSTNAME_CMD}}
 START_CELERY=${START_CELERY:-true}
+FLOWER_PORT=${FLOWER_PORT:-5555}
+START_FLOWER=${START_FLOWER:-true}
 
 SERVICES=($@)
 if [[ ${#SERVICES[@]} -eq 0 ]]; then
@@ -23,12 +25,14 @@ fi
 START_FASTAPI=0
 START_GRADIO=0
 SELECT_CELERY=0
+START_FLOWER_FLAG=0
 for svc in "${SERVICES[@]}"; do
   case "$svc" in
     all)
       START_FASTAPI=1
       START_GRADIO=1
       SELECT_CELERY=1
+      START_FLOWER_FLAG=1
       ;;
     api|uvicorn|fastapi)
       START_FASTAPI=1
@@ -38,6 +42,9 @@ for svc in "${SERVICES[@]}"; do
       ;;
     celery|workers)
       SELECT_CELERY=1
+      ;;
+    flower)
+      START_FLOWER_FLAG=1
       ;;
     *)
       echo "[ERROR] Unknown service '$svc'. Choose from all|uvicorn|gradio|celery." >&2
@@ -51,13 +58,18 @@ if [[ "$START_CELERY" == "true" && $SELECT_CELERY -eq 1 ]]; then
   START_CELERY_ENABLED=1
 fi
 
+START_FLOWER_ENABLED=0
+if [[ "$START_FLOWER" == "true" && $START_FLOWER_FLAG -eq 1 ]]; then
+  START_FLOWER_ENABLED=1
+fi
+
 if [[ $START_FASTAPI -eq 1 && ! -x "$VENV_BIN/uvicorn" ]]; then
   echo "[ERROR] Could not find .venv/bin/uvicorn. Please create the virtual environment and install dependencies." >&2
   exit 1
 fi
 
-if [[ $START_CELERY_ENABLED -eq 1 && ! -x "$VENV_BIN/celery" ]]; then
-  echo "[ERROR] START_CELERY=true but .venv/bin/celery not found. Install dependencies or set START_CELERY=false." >&2
+if [[ ($START_CELERY_ENABLED -eq 1 || $START_FLOWER_ENABLED -eq 1) && ! -x "$VENV_BIN/celery" ]]; then
+  echo "[ERROR] Celery/Flower requested but .venv/bin/celery not found. Install dependencies or disable START_CELERY/START_FLOWER." >&2
   exit 1
 fi
 
@@ -97,6 +109,7 @@ UVICORN_LOG="$LOG_DIR/uvicorn.log"
 GRADIO_LOG="$LOG_DIR/gradio.log"
 CELERY_CPU_LOG="$LOG_DIR/celery_cpu.log"
 CELERY_IO_LOG="$LOG_DIR/celery_io.log"
+FLOWER_LOG="$LOG_DIR/flower.log"
 
 # Start FastAPI (Uvicorn) in the background with log redirection.
 if [[ $START_FASTAPI -eq 1 ]]; then
@@ -126,4 +139,14 @@ if [[ $START_CELERY_ENABLED -eq 1 ]]; then
 
   ("$VENV_BIN/celery" -A app.celery_app worker -Q "$CELERY_IO_QUEUE" -n "$CELERY_IO_NAME" -l info >"$CELERY_IO_LOG" 2>&1 & echo $! >"$RUN_DIR/celery_io.pid")
   echo "Celery IO worker started on queue ${CELERY_IO_QUEUE}. Logs: $CELERY_IO_LOG"
+fi
+
+if [[ $START_FLOWER_ENABLED -eq 1 ]]; then
+  ("$VENV_BIN/celery" -A app.celery_app flower --address 0.0.0.0 --port "$FLOWER_PORT" >"$FLOWER_LOG" 2>&1 & echo $! >"$RUN_DIR/flower.pid")
+  echo "Flower dashboard started on port ${FLOWER_PORT}. Logs: $FLOWER_LOG"
+
+  if ! wait_for_http "Flower" "http://127.0.0.1:${FLOWER_PORT}"; then
+    "$ROOT_DIR/stop_server.sh" "${SERVICES[@]}" || true
+    exit 1
+  fi
 fi

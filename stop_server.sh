@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RUN_DIR="$ROOT_DIR/.run"
 STOP_CELERY=${STOP_CELERY:-true}
+STOP_FLOWER=${STOP_FLOWER:-true}
 SERVICES=($@)
 if [[ ${#SERVICES[@]} -eq 0 ]]; then
   SERVICES=(all)
@@ -12,12 +13,14 @@ fi
 STOP_FASTAPI=0
 STOP_GRADIO=0
 SELECT_CELERY=0
+STOP_FLOWER_FLAG=0
 for svc in "${SERVICES[@]}"; do
   case "$svc" in
     all)
       STOP_FASTAPI=1
       STOP_GRADIO=1
       SELECT_CELERY=1
+      STOP_FLOWER_FLAG=1
       ;;
     api|uvicorn|fastapi)
       STOP_FASTAPI=1
@@ -28,8 +31,11 @@ for svc in "${SERVICES[@]}"; do
     celery|workers)
       SELECT_CELERY=1
       ;;
+    flower)
+      STOP_FLOWER_FLAG=1
+      ;;
     *)
-      echo "[ERROR] Unknown service '$svc'. Choose from all|uvicorn|gradio|celery." >&2
+      echo "[ERROR] Unknown service '$svc'. Choose from all|uvicorn|gradio|celery|flower." >&2
       exit 1
       ;;
   esac
@@ -38,6 +44,11 @@ done
 STOP_CELERY_ENABLED=0
 if [[ "$STOP_CELERY" == "true" && $SELECT_CELERY -eq 1 ]]; then
   STOP_CELERY_ENABLED=1
+fi
+
+STOP_FLOWER_ENABLED=0
+if [[ "$STOP_FLOWER" == "true" && $STOP_FLOWER_FLAG -eq 1 ]]; then
+  STOP_FLOWER_ENABLED=1
 fi
 
 PIDS=()
@@ -49,6 +60,9 @@ if [[ $STOP_GRADIO -eq 1 ]]; then
 fi
 if [[ $STOP_CELERY_ENABLED -eq 1 ]]; then
   PIDS+=(celery_cpu celery_io)
+fi
+if [[ $STOP_FLOWER_ENABLED -eq 1 ]]; then
+  PIDS+=(flower)
 fi
 
 stop_pid() {
