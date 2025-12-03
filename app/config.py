@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     es_skip_tls: bool = Field(False, env="ES_SKIP_TLS")
     es_enabled: bool = Field(True, env="ES_ENABLED")
     embedding_model: str = Field("mock-text-embedding", env="EMBEDDING_MODEL")
+    embedding_provider: str = Field("bailian", env="EMBEDDING_PROVIDER")
     audio_sample_rate: int = 16000
     chunk_max_duration: float = 30.0
     frame_interval_seconds: float = 2.0
@@ -31,6 +32,9 @@ class Settings(BaseSettings):
     bailian_llm_model: str = Field("qwen3", env="BAILIAN_LLM_MODEL")
     log_level: str = Field("INFO", env="LOG_LEVEL")
     video_max_keyframes: int = Field(60, env="VIDEO_MAX_KEYFRAMES")
+    ollama_base_url: str = Field("http://localhost:11434", env="OLLAMA_BASE_URL")
+    ollama_embedding_model: str = Field("nomic-embed-text", env="OLLAMA_EMBEDDING_MODEL")
+    ollama_timeout: int = Field(60, env="OLLAMA_TIMEOUT")
 
     celery_broker_url: str = Field("redis://localhost:6379/0", env="CELERY_BROKER_URL")
     celery_result_backend: str = Field("redis://localhost:6379/1", env="CELERY_RESULT_BACKEND")

@@ -11,18 +11,20 @@ from app.config import settings
 from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import AudioContent, Chunk, ChunkContent, TemporalInfo, TextContent, TextSegment, VectorInfo
 from app.services.asr import transcribe
-from app.services.bailian import bailian_client
+from app.services.embedding_provider import embedding_client
 from app.services.storage import sync_artifact
 
 
 def _deterministic_random(seed: str) -> random.Random:
+    """利用 SHA256 构造确定性随机数，保证相同文本生成稳定向量。"""
+
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
     seed_int = int(digest[:16], 16)
     return random.Random(seed_int)
 
 
 def chunk_text_segments(segments: List[TextSegment], chunk_duration: float) -> List[List[TextSegment]]:
-    """Group segments by time windows."""
+    """将连续的语音片段按时间窗口分组，控制单块时长。"""
 
     grouped: List[List[TextSegment]] = []
     current: List[TextSegment] = []
@@ -42,6 +44,8 @@ def chunk_text_segments(segments: List[TextSegment], chunk_duration: float) -> L
 
 
 def _build_text_content(chunks: List[TextSegment]) -> TextContent:
+    """把同一 Chunk 的片段拼接为全文并记录词数。"""
+
     full_text = " ".join(seg.text for seg in chunks)
     word_count = len(full_text.split())
     return TextContent(full_text=full_text, segments=chunks, language="zh", word_count=word_count)
@@ -51,26 +55,27 @@ logger = get_pipeline_logger("pipeline.audio")
 
 
 def _fake_embedding(text: str) -> List[float]:
+    """在 Bailian 不可用时基于文本生成伪随机向量，保证可重复。"""
+
     rnd = _deterministic_random(text)
     return [rnd.uniform(-1, 1) for _ in range(settings.embedding_dimension)]
 
 
 def _build_embedding(text: str) -> List[float]:
-    if bailian_client.enabled:
-        try:
-            vectors = bailian_client.embed_texts([text])
-            if vectors:
-                return vectors[0]
-        except Exception as exc:  # pragma: no cover - API failure handled gracefully
-            logger.warning(
-                "Embedding model %s failed, fallback to deterministic vector: %s",
-                settings.bailian_embedding_model,
-                exc,
-            )
+    """根据配置选择百炼或 Ollama，失败时退回伪随机 embedding。"""
+
+    try:
+        vectors = embedding_client.embed_texts([text])
+        if vectors and vectors[0]:
+            return vectors[0]
+    except Exception as exc:  # pragma: no cover - provider optional
+        logger.warning("Embedding provider failed, fallback to deterministic vector: %s", exc)
     return _fake_embedding(text)
 
 
 def _prepare_audio_track(source_path: Path, document_id: str) -> Path:
+    """抽取单声道 WAV，失败时回落到源文件，确保后续 ASR 有输入。"""
+
     settings.audio_intermediate_dir.mkdir(parents=True, exist_ok=True)
     target_path = settings.audio_intermediate_dir / f"{document_id}.wav"
     cmd = [
@@ -103,6 +108,8 @@ def _prepare_audio_track(source_path: Path, document_id: str) -> Path:
 
 
 def build_audio_chunks(audio_path: Path, base_chunk_id: str) -> List[Chunk]:
+    """音频主流程：抽取→ASR→分片→构建 Chunk 向量与多模态内容。"""
+
     prepared_audio = _prepare_audio_track(audio_path, base_chunk_id)
     with log_timing(logger, f"ASR transcription for {prepared_audio.name}"):
         segments = transcribe(prepared_audio)
@@ -120,7 +127,7 @@ def build_audio_chunks(audio_path: Path, base_chunk_id: str) -> List[Chunk]:
                 chunk_index=idx,
             )
             embedding = _build_embedding(text_content.full_text)
-            vector_model = settings.bailian_embedding_model if bailian_client.enabled else settings.embedding_model
+            vector_model = embedding_client.model_name or settings.embedding_model
             vector_dimension = len(embedding) or settings.embedding_dimension
             vector = VectorInfo(
                 embedding=embedding,

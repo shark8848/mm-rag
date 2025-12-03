@@ -72,6 +72,10 @@ ES_ENABLED=false          # 无 ES 时自动退回内存索引
 WHISPER_MODEL=base
 ASR_LANGUAGE=zh
 EMBEDDING_MODEL=bge-m3:latest
+EMBEDDING_PROVIDER=bailian       # bailian | ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_TIMEOUT=60
 
 BAILIAN_API_KEY=sk-xxxx
 BAILIAN_BASE_URL=https://dashscope.aliyuncs.com
@@ -96,6 +100,8 @@ CELERY_DEFAULT_QUEUE=ingest_cpu
 CELERY_IO_QUEUE=ingest_io
 CELERY_CPU_QUEUE=ingest_cpu
 ```
+
+> 向量模型可通过 `EMBEDDING_PROVIDER` 选择 `bailian` 或 `ollama`。当设置为 `ollama` 时会调用本地 `OLLAMA_BASE_URL/api/embeddings`，并使用 `OLLAMA_EMBEDDING_MODEL`；若选择 `bailian` 则延用 DashScope SDK/REST。当云端或本地服务不可用时，流水线会退回确定性伪随机向量以保证流程可继续。
 
 ## 运行服务
 

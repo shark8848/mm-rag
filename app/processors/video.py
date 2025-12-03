@@ -11,6 +11,7 @@ from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import Chunk, ChunkContent, Keyframe, Resolution, VideoContent
 from app.processors.audio import build_audio_chunks
 from app.services.bailian import bailian_client
+from app.services.embedding_provider import embedding_client
 from app.services.storage import sync_artifact
 
 
@@ -18,6 +19,8 @@ logger = get_pipeline_logger("pipeline.video")
 
 
 def _mock_video_metadata(video_path: Path) -> dict:
+    """当 ffprobe 失败时根据文件大小粗略推断时长/分辨率。"""
+
     size = video_path.stat().st_size if video_path.exists() else 10_000_000
     duration = max(30.0, size / 500_000)
     return {
@@ -29,6 +32,8 @@ def _mock_video_metadata(video_path: Path) -> dict:
 
 
 def _parse_frame_rate(value: str | None) -> float:
+    """容错解析 ffprobe 帧率，默认回落到 25fps。"""
+
     if not value or value == "0/0":
         return 25.0
     if "/" in value:
@@ -44,6 +49,8 @@ def _parse_frame_rate(value: str | None) -> float:
 
 
 def _probe_video(video_path: Path) -> dict:
+    """调用 ffprobe 获取时长、fps、分辨率等基础信息。"""
+
     cmd = [
         "ffprobe",
         "-v",
@@ -87,6 +94,8 @@ def _probe_video(video_path: Path) -> dict:
 
 
 def _prepare_frame_dir(document_id: str) -> Path:
+    """为关键帧生成独立目录，并清理历史帧。"""
+
     target_dir = settings.video_intermediate_dir / document_id
     target_dir.mkdir(parents=True, exist_ok=True)
     for frame_file in target_dir.glob("frame_*.jpg"):
@@ -95,6 +104,8 @@ def _prepare_frame_dir(document_id: str) -> Path:
 
 
 def _resolve_frame_options(options: Optional[Dict[str, Any]]) -> Tuple[str, float, float]:
+    """解析 UI 传入的抽帧策略，限制边界防止异常输入。"""
+
     opts = options or {}
     strategy = opts.get("frame_strategy") or "interval"
     if strategy not in {"interval", "scene"}:
@@ -122,6 +133,8 @@ def _extract_frames(
     scene_threshold: float,
     clip_duration: float,
 ) -> List[Tuple[float, Path]]:
+    """根据策略抽帧，生成 (timestamp, frame_path) 对。"""
+
     target_dir = _prepare_frame_dir(document_id)
     output_pattern = target_dir / "frame_%04d.jpg"
     if strategy == "scene":
@@ -187,6 +200,8 @@ def _extract_frames(
 
 
 def _describe_frames(frame_paths: Sequence[Path]) -> List[str]:
+    """调用图像理解模型生成关键帧描述，若未启用则返回空串。"""
+
     descriptions: List[str] = []
     if not bailian_client.enabled:
         return ["" for _ in frame_paths]
@@ -197,10 +212,12 @@ def _describe_frames(frame_paths: Sequence[Path]) -> List[str]:
 
 
 def _embed_descriptions(descriptions: Sequence[str]) -> List[List[float]]:
+    """对非空描述批量生成文本向量，保持与帧索引对应。"""
+
     non_empty = [(idx, desc) for idx, desc in enumerate(descriptions) if desc]
     if not non_empty:
         return [[] for _ in descriptions]
-    vectors = bailian_client.embed_texts([desc for _, desc in non_empty])
+    vectors = embedding_client.embed_texts([desc for _, desc in non_empty])
     embeddings: List[List[float]] = [[] for _ in descriptions]
     for (idx, _), vector in zip(non_empty, vectors):
         embeddings[idx] = vector
@@ -208,6 +225,8 @@ def _embed_descriptions(descriptions: Sequence[str]) -> List[List[float]]:
 
 
 def _build_keyframes(entries: List[Tuple[float, Path]]) -> List[Keyframe]:
+    """把抽帧结果扩展为带描述+向量的 Keyframe 模型。"""
+
     if not entries:
         return []
     timestamps = [entry[0] for entry in entries]
@@ -232,6 +251,8 @@ def _build_keyframes(entries: List[Tuple[float, Path]]) -> List[Keyframe]:
 
 
 def _assign_keyframes(chunks: List[Chunk], keyframes: List[Keyframe]) -> None:
+    """按时间范围把关键帧挂载到 Chunk，缺省时整体共享。"""
+
     if not keyframes:
         return
     for chunk in chunks:
@@ -244,6 +265,8 @@ def _assign_keyframes(chunks: List[Chunk], keyframes: List[Keyframe]) -> None:
 
 
 def _fallback_frames(interval_seconds: float, clip_duration: float) -> List[Tuple[float, Path]]:
+    """当 ffmpeg 抽帧失败时生成占位帧路径，确保后续流程不中断。"""
+
     effective_interval = max(interval_seconds, 0.5)
     steps = max(1, math.floor(clip_duration / effective_interval))
     return [
@@ -257,6 +280,8 @@ def build_video_chunks(
     base_chunk_id: str,
     processing_options: Optional[Dict[str, Any]] = None,
 ) -> List[Chunk]:
+    """视频流程=音频 Chunk + 关键帧增强 + 视频元数据。"""
+
     with log_timing(logger, f"Audio chunk generation for {video_path.name}"):
         audio_chunks = build_audio_chunks(video_path, base_chunk_id)
     with log_timing(logger, f"Video metadata probe for {video_path.name}"):
