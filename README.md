@@ -226,6 +226,7 @@ Celery workflow 链路：
 
 | 版本 | 日期 | 亮点 | 下载 |
 | --- | --- | --- | --- |
+| v0.2.0 | 2025-12-05 | 引入 `start/stop/show_server.sh` 一键脚本、Celery/Flower 健康检查、可切换的 Bailian/Ollama 向量服务、`.env`/日志文档完善。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.2.0.zip) |
 | v0.1.0 | 2025-11-28 | 首次公开版本：包含 FastAPI + Gradio、MinIO 同步、启动脚本与任务/日志 API。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.1.0.zip) |
 
 更多细节参见 `CHANGELOG.md`，新的标签发布后可在 [Releases 页面](https://github.com/shark8848/mm-rag/releases) 下载对应包。
