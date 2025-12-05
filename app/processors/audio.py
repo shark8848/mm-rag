@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import random
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,16 +9,8 @@ from app.config import settings
 from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import AudioContent, Chunk, ChunkContent, TemporalInfo, TextContent, TextSegment, VectorInfo
 from app.services.asr import transcribe
-from app.services.embedding_provider import embedding_client
+from app.services.vector_service import vector_service
 from app.services.storage import sync_artifact
-
-
-def _deterministic_random(seed: str) -> random.Random:
-    """利用 SHA256 构造确定性随机数，保证相同文本生成稳定向量。"""
-
-    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-    seed_int = int(digest[:16], 16)
-    return random.Random(seed_int)
 
 
 def chunk_text_segments(segments: List[TextSegment], chunk_duration: float) -> List[List[TextSegment]]:
@@ -52,25 +42,6 @@ def _build_text_content(chunks: List[TextSegment]) -> TextContent:
 
 
 logger = get_pipeline_logger("pipeline.audio")
-
-
-def _fake_embedding(text: str) -> List[float]:
-    """在 Bailian 不可用时基于文本生成伪随机向量，保证可重复。"""
-
-    rnd = _deterministic_random(text)
-    return [rnd.uniform(-1, 1) for _ in range(settings.embedding_dimension)]
-
-
-def _build_embedding(text: str) -> List[float]:
-    """根据配置选择百炼或 Ollama，失败时退回伪随机 embedding。"""
-
-    try:
-        vectors = embedding_client.embed_texts([text])
-        if vectors and vectors[0]:
-            return vectors[0]
-    except Exception as exc:  # pragma: no cover - provider optional
-        logger.warning("Embedding provider failed, fallback to deterministic vector: %s", exc)
-    return _fake_embedding(text)
 
 
 def _prepare_audio_track(source_path: Path, document_id: str) -> Path:
@@ -126,8 +97,9 @@ def build_audio_chunks(audio_path: Path, base_chunk_id: str) -> List[Chunk]:
                 duration=group[-1].end_time - group[0].start_time,
                 chunk_index=idx,
             )
-            embedding = _build_embedding(text_content.full_text)
-            vector_model = embedding_client.model_name or settings.embedding_model
+            vectors = vector_service.embed_texts([text_content.full_text])
+            embedding = vectors[0] if vectors else []
+            vector_model = vector_service.model_name or settings.embedding_model
             vector_dimension = len(embedding) or settings.embedding_dimension
             vector = VectorInfo(
                 embedding=embedding,

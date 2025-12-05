@@ -44,6 +44,7 @@ def _minio_endpoint_parts(endpoint: str) -> tuple[str, bool]:
 def _get_minio_client() -> Optional[Any]:
     global _minio_client  # pylint: disable=global-statement
     if not settings.minio_enabled:
+        logger.debug("MinIO sync disabled; skipping client initialization")
         return None
     if Minio is None:
         logger.warning("MinIO sync enabled but 'minio' package is not installed")

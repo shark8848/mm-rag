@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 
 from app.config import settings
+from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import TextSegment
 from app.services.bailian import bailian_client
 
@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - optional dependency
     whisper = None  # type: ignore
 
 
-logger = logging.getLogger(__name__)
+logger = get_pipeline_logger("pipeline.asr")
 
 
 def _fallback_transcribe(audio_path: Path) -> List[TextSegment]:
@@ -47,7 +47,8 @@ def _load_model():
 def transcribe(audio_path: Path) -> List[TextSegment]:
     if bailian_client.enabled:
         try:
-            segments = bailian_client.transcribe_audio(audio_path, settings.asr_language)
+            with log_timing(logger, f"Bailian ASR for {audio_path.name}"):
+                segments = bailian_client.transcribe_audio(audio_path, settings.asr_language)
             if segments:
                 return segments
         except Exception as exc:  # pragma: no cover - bailian call best-effort
@@ -56,11 +57,12 @@ def transcribe(audio_path: Path) -> List[TextSegment]:
     model = _load_model()
     if model is None:
         return _fallback_transcribe(audio_path)
-    result = model.transcribe(
-        str(audio_path),
-        language=settings.asr_language,
-        verbose=False,
-    )
+    with log_timing(logger, f"Whisper ASR for {audio_path.name}"):
+        result = model.transcribe(
+            str(audio_path),
+            language=settings.asr_language,
+            verbose=False,
+        )
     segments: List[TextSegment] = []
     for idx, seg in enumerate(result.get("segments", [])):
         segments.append(

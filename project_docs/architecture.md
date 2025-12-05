@@ -50,10 +50,17 @@ app/
 
 | 阶段 | 目标 | 主要改动 |
 | --- | --- | --- |
-| 1 | 定义架构 & 基础模块 | （当前）完成 core/api/stage skeleton 与设计文档 |
-| 2 | 底层服务改造 | 重写 VectorService、ASR/关键帧指标、MinIO/日志增强 |
+| 1 | 定义架构 & 基础模块 | ✔️ 完成 core/api/stage skeleton 与设计文档 |
+| 2 | 底层服务改造 | ✔️ VectorService 替换旧 embedding client，ASR/关键帧/MinIO 增加计时日志 |
 | 3 | API & 脚本实现 | FastAPI 路由拆分、认证限额接入、启动脚本重写、`show_server` 健康检查 |
 | 4 | Pipeline/Celery 重构 | stage 组合、重试策略、指标、向量服务全面接入 |
 | 5 | UI & 文档 | Gradio UI 更新、README/CHANGELOG/配置样例同步 |
+
+## 阶段 2 更新摘要
+
+- 新的 `VectorService`（`app/services/vector_service.py`）统一管理 Bailian/Ollama 向量化，提供重试、确定性回退与健康快照；旧 `embedding_provider` 退化为兼容层。
+- 音视频处理模块现统一调用 `vector_service`，并把模型名称/维度写入 Chunk 元数据。
+- ASR 与关键帧描述流程加入 `log_timing`，便于监控 Bailian/Whisper 及图像理解耗时；MinIO 同步在禁用时记录调试日志。
+- 这些改动为后续 Pipeline 阶段和 API 层提供可观测的、可配置的底层能力。
 
 本设计文档会在后续阶段更新，以记录新组件的契约和依赖。

@@ -11,7 +11,7 @@ from app.logging_utils import get_pipeline_logger, log_timing
 from app.models.mm_schema import Chunk, ChunkContent, Keyframe, Resolution, VideoContent
 from app.processors.audio import build_audio_chunks
 from app.services.bailian import bailian_client
-from app.services.embedding_provider import embedding_client
+from app.services.vector_service import vector_service
 from app.services.storage import sync_artifact
 
 
@@ -205,9 +205,10 @@ def _describe_frames(frame_paths: Sequence[Path]) -> List[str]:
     descriptions: List[str] = []
     if not bailian_client.enabled:
         return ["" for _ in frame_paths]
-    for frame_path in frame_paths:
-        description = bailian_client.describe_image(frame_path)
-        descriptions.append(description)
+    with log_timing(logger, f"Frame captioning x{len(frame_paths)}"):
+        for frame_path in frame_paths:
+            description = bailian_client.describe_image(frame_path)
+            descriptions.append(description)
     return descriptions
 
 
@@ -217,7 +218,7 @@ def _embed_descriptions(descriptions: Sequence[str]) -> List[List[float]]:
     non_empty = [(idx, desc) for idx, desc in enumerate(descriptions) if desc]
     if not non_empty:
         return [[] for _ in descriptions]
-    vectors = embedding_client.embed_texts([desc for _, desc in non_empty])
+    vectors = vector_service.embed_texts([desc for _, desc in non_empty])
     embeddings: List[List[float]] = [[] for _ in descriptions]
     for (idx, _), vector in zip(non_empty, vectors):
         embeddings[idx] = vector
