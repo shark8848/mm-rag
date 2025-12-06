@@ -38,8 +38,9 @@ app/
 
 ## 3. 认证与限额
 
-- `AuthManager`：支持必选/可选认证，凭据存储在 `app_secrets_path` JSON 中，可签发/吊销。
+- `AuthManager`：默认要求客户端在每个请求头里携带 `X-Appid`、`X-Key`，并与 `app_secrets_path`（JSON 列表 `[{"app_id": ..., "app_key": ...}]`）对照，可通过 `CredentialStore` 签发/吊销。
 - `LimitChecker`：支持默认/按媒体类型的大小、时长、批次限制，超限抛 `APIError(ERR_MEDIA_TOO_LARGE)`。
+- `APIError` → `ErrorEnvelope`：所有异常都以统一 JSON 返回（`status/error_code/error_status/message/zh_message/context`），方便 Gradio、CLI 或第三方客户端解析。
 
 ## 4. 向量服务抽象
 

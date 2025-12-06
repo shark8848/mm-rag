@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 from typing import Any, Dict, List, Sequence, Tuple
 
 import gradio as gr
@@ -11,6 +10,33 @@ import requests
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 DEFAULT_TIMEOUT = float(os.environ.get("API_TIMEOUT", "90"))
+API_APP_ID = os.environ.get("API_APP_ID")
+API_APP_KEY = os.environ.get("API_APP_KEY")
+
+_AUTH_HEADERS = {"X-Appid": API_APP_ID, "X-Key": API_APP_KEY} if (API_APP_ID and API_APP_KEY) else {}
+
+
+def _headers() -> Dict[str, str]:
+    return dict(_AUTH_HEADERS)
+
+
+def _format_request_error(exc: Exception) -> str:
+    message = str(exc)
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        try:
+            payload = exc.response.json()
+        except Exception:  # pylint: disable=broad-except
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("message") or payload.get("detail")
+            if detail:
+                message = detail
+            code = payload.get("error_code")
+            if code:
+                message = f"{code}: {message}"
+    if not _AUTH_HEADERS:
+        message = f"{message}（请设置 API_APP_ID/API_APP_KEY 环境变量以满足 FastAPI 认证）"
+    return message
 
 
 def _normalize_tags(raw: str) -> List[str]:
@@ -68,11 +94,12 @@ def submit_ingest(
             f"{API_BASE_URL}/ingest/upload",
             files=files,
             data=data,
+            headers=_headers(),
             timeout=DEFAULT_TIMEOUT,
         )
         response.raise_for_status()
     except Exception as exc:  # pylint: disable=broad-except
-        return f"❌ 创建任务失败: {exc}", "", {}
+        return f"❌ 创建任务失败: {_format_request_error(exc)}", "", {}
 
     payload = response.json()
     task_id = payload.get("task_id", "")
@@ -118,18 +145,19 @@ def run_query(query: str, top_k: int) -> str:
         response = requests.post(
             f"{API_BASE_URL}/query",
             json={"query": query, "top_k": top_k},
+            headers=_headers(),
             timeout=30,
         )
         response.raise_for_status()
     except Exception as exc:  # pylint: disable=broad-except
-        return f"查询失败：{exc}"
+        return f"查询失败：{_format_request_error(exc)}"
     data = response.json()
     hits = data.get("hits", [])
     return format_hits(hits)
 
 
 def _append_message(messages: List[Dict[str, Any]], role: str, text: str) -> None:
-    messages.append({"role": role, "content": [{"text": text}]})
+    messages.append({"role": role, "content": [{"type": "text", "text": text}]})
 
 
 def handle_query(query: str, top_k: int, history: List[Dict[str, Any]] | None):
@@ -143,13 +171,14 @@ def handle_query(query: str, top_k: int, history: List[Dict[str, Any]] | None):
         response = requests.post(
             f"{API_BASE_URL}/query",
             json={"query": user_query, "top_k": top_k},
+            headers=_headers(),
             timeout=30,
         )
         response.raise_for_status()
         hits = response.json().get("hits", [])
         answer = format_hits(hits)
     except Exception as exc:  # pylint: disable=broad-except
-        answer = f"查询失败：{exc}"
+        answer = f"查询失败：{_format_request_error(exc)}"
         hits = []
     _append_message(messages, "assistant", answer)
     video_path = None
@@ -173,7 +202,7 @@ def _fetch_logs(task_id: str, lines: int = 200) -> str:
     ]
     for url, params in endpoints:
         try:
-            resp = requests.get(url, params=params, timeout=15)
+            resp = requests.get(url, params=params, headers=_headers(), timeout=15)
             if resp.status_code == 404:
                 continue
             resp.raise_for_status()
@@ -188,11 +217,11 @@ def poll_task(task_id: str) -> Tuple[str, str, str]:
     if not task_id:
         return "等待任务", "", ""
     try:
-        resp = requests.get(f"{API_BASE_URL}/tasks/{task_id}", timeout=15)
+        resp = requests.get(f"{API_BASE_URL}/tasks/{task_id}", headers=_headers(), timeout=15)
         resp.raise_for_status()
         task = resp.json()
     except Exception as exc:  # pylint: disable=broad-except
-        return f"任务查询失败：{exc}", "", ""
+        return f"任务查询失败：{_format_request_error(exc)}", "", ""
 
     status_line = f"状态：{task.get('status')}"
     detail = task.get("detail")

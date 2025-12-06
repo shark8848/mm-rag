@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = Field("nomic-embed-text", env="OLLAMA_EMBEDDING_MODEL")
     ollama_timeout: int = Field(60, env="OLLAMA_TIMEOUT")
 
+    api_auth_required: bool = Field(True, env="API_AUTH_REQUIRED")
+    api_secrets_path: str | None = Field("app_secrets.json", env="API_SECRETS_PATH")
+    upload_max_files: int = Field(4, env="UPLOAD_MAX_FILES")
+    upload_max_batch_mb: float = Field(4096.0, env="UPLOAD_MAX_BATCH_MB")
+    audio_max_size_mb: float = Field(2048.0, env="AUDIO_MAX_SIZE_MB")
+    video_max_size_mb: float = Field(4096.0, env="VIDEO_MAX_SIZE_MB")
+    audio_max_duration_sec: float | None = Field(21600.0, env="AUDIO_MAX_DURATION_SEC")
+    video_max_duration_sec: float | None = Field(10800.0, env="VIDEO_MAX_DURATION_SEC")
+
     celery_broker_url: str = Field("redis://localhost:6379/0", env="CELERY_BROKER_URL")
     celery_result_backend: str = Field("redis://localhost:6379/1", env="CELERY_RESULT_BACKEND")
     celery_default_queue: str = Field("ingest_cpu", env="CELERY_DEFAULT_QUEUE")

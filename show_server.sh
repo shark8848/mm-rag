@@ -41,8 +41,21 @@ status_for() {
   echo "stopped"
 }
 
-printf "%-22s %-10s %-8s %-8s %s\n" "Service" "Status" "PID" "Port" "Log"
-printf '%s\n' "--------------------------------------------------------------------------------"
+printf "%-22s %-10s %-8s %-8s %-8s %s\n" "Service" "Status" "PID" "Port" "Health" "Log"
+printf '%s\n' "-----------------------------------------------------------------------------------------------------------"
+
+curl_health() {
+  local url=$1
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "n/a"
+    return
+  fi
+  if curl -sSf --max-time 1 "$url" >/dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "fail"
+  fi
+}
 
 for row in "${SERVICE_MATRIX[@]}"; do
   IFS='|' read -r key label port log <<<"$row"
@@ -53,5 +66,22 @@ for row in "${SERVICE_MATRIX[@]}"; do
   [[ "$status" == "stale" ]] && display_pid="?"
   display_port=${port:-"-"}
   [[ ! -f "$pid_file" && "$status" == "stopped" ]] && status="idle"
-  printf "%-22s %-10s %-8s %-8s %s\n" "$label" "$status" "$display_pid" "$display_port" "$log"
+  health="-"
+  if [[ "$status" == "running" && -n "$port" ]]; then
+    case "$key" in
+      uvicorn)
+        health=$(curl_health "http://127.0.0.1:${port}/health")
+        ;;
+      gradio)
+        health=$(curl_health "http://127.0.0.1:${port}")
+        ;;
+      flower)
+        health=$(curl_health "http://127.0.0.1:${port}")
+        ;;
+      *)
+        health="-"
+        ;;
+    esac
+  fi
+  printf "%-22s %-10s %-8s %-8s %-8s %s\n" "$label" "$status" "$display_pid" "$display_port" "$health" "$log"
 done

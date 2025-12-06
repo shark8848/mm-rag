@@ -15,6 +15,7 @@ class ErrorCode:
 
     def as_dict(self, detail: Optional[str] = None) -> Dict[str, Any]:
         payload = {
+            "status": "failure",
             "error_code": self.code,
             "error_status": self.status.value,
             "message": detail or self.message,

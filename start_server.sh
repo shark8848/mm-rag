@@ -78,6 +78,20 @@ fi
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
+# Surface API auth configuration for operator hints.
+AUTH_REQUIRED="0"
+AUTH_SECRETS=""
+if [[ -x "$VENV_BIN/python" ]]; then
+  if ! AUTH_OUTPUT=$("$VENV_BIN/python" - <<'PY'
+from app.config import settings
+print(f"{int(bool(settings.api_auth_required))}|{settings.api_secrets_path or ''}")
+PY
+  ); then
+    AUTH_OUTPUT="0|"
+  fi
+  IFS='|' read -r AUTH_REQUIRED AUTH_SECRETS <<<"$AUTH_OUTPUT"
+fi
+
 # Simple HTTP readiness probe using curl (POSIX-friendly for wider shell support).
 wait_for_http() {
   name=$1
@@ -155,4 +169,13 @@ if [[ $START_FLOWER_ENABLED -eq 1 ]]; then
     fi
     echo "[WARN] Flower failed health check but other services remain running. Check $FLOWER_LOG." >&2
   fi
+fi
+
+if [[ "$AUTH_REQUIRED" == "1" ]]; then
+  echo "[INFO] API authentication is enabled. Use X-Appid/X-Key headers for requests. Secrets: ${AUTH_SECRETS:-'(env only)'}"
+fi
+
+if [[ -x "$ROOT_DIR/show_server.sh" ]]; then
+  echo
+  "$ROOT_DIR/show_server.sh"
 fi

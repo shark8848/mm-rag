@@ -31,6 +31,7 @@ app/
   logging_utils.py       # 统一日志初始化
   models/mm_schema.py    # 与 mm-schema.json 对齐的 Pydantic 模型
   pipeline/ingest.py     # 主处理入口（抽帧、ASR、分块、入 ES）
+  pipeline/stages/       # Stage4 原子任务（validation/chunks/vector/persist/index）
   processors/            # 音视频处理模块（Whisper、DashScope、FFmpeg）
   services/              # 存储、Elasticsearch、阿里百炼客户端封装
   tasks.py               # 内存任务状态表
@@ -86,6 +87,15 @@ BAILIAN_LLM_MODEL=qwen3
 
 LOG_LEVEL=INFO
 
+API_AUTH_REQUIRED=true
+API_SECRETS_PATH=app_secrets.json
+UPLOAD_MAX_FILES=4
+UPLOAD_MAX_BATCH_MB=4096
+AUDIO_MAX_SIZE_MB=2048
+VIDEO_MAX_SIZE_MB=4096
+AUDIO_MAX_DURATION_SEC=21600
+VIDEO_MAX_DURATION_SEC=10800
+
 # 可选 MinIO 同步
 MINIO_ENABLED=false
 MINIO_ENDPOINT=http://localhost:9000
@@ -100,6 +110,16 @@ CELERY_DEFAULT_QUEUE=ingest_cpu
 CELERY_IO_QUEUE=ingest_io
 CELERY_CPU_QUEUE=ingest_cpu
 ```
+
+当 `API_AUTH_REQUIRED=true` 时，FastAPI 会拒绝缺少头信息的请求。`API_SECRETS_PATH` 指向一个 JSON 列表，例如：
+
+```json
+[
+  {"app_id": "demo", "app_key": "demo-secret", "name": "local"}
+]
+```
+
+脚本 `start_server.sh` 会在启动后提示是否启用了认证，并指明密钥文件路径；客户端调用时需携带 `X-Appid: demo` 与 `X-Key: demo-secret` 头部。
 
 > 向量模型可通过 `EMBEDDING_PROVIDER` 选择 `bailian` 或 `ollama`。当设置为 `ollama` 时会调用本地 `OLLAMA_BASE_URL/api/embeddings`，并使用 `OLLAMA_EMBEDDING_MODEL`；若选择 `bailian` 则延用 DashScope SDK/REST。当云端或本地服务不可用时，流水线会退回确定性伪随机向量以保证流程可继续。
 
@@ -166,12 +186,16 @@ Pipeline 已拆分为原子级 Celery 任务，需至少启动一个 CPU worker 
 ### Gradio 控制台
 
 ```bash
-API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
+API_BASE_URL=http://localhost:8000 \
+API_APP_ID=demo \
+API_APP_KEY=demo-secret \
+.venv/bin/python ui/gradio_app.py
 ```
 
 - **上传处理** 页签：上传音/视频、选择抽帧策略（`interval`/`scene`）、查看任务状态与实时日志。
 - **混合检索** 页签：输入查询后由 Chatbot 返回命中段落，同时展示首个命中的视频、音频、关键帧画廊，便于复核。
 - UI 默认每 2 秒轮询 `/tasks/{task_id}` 与 `/logs/{task_id}`，若任务专属日志缺失则自动降级到 `/logs/tail`。
+- FastAPI 开启认证时（默认），请在启动 UI 或调用脚本前设置 `API_APP_ID`、`API_APP_KEY`，值需与 `app_secrets_path` 中的凭据一致，客户端会自动为所有请求附加 `X-Appid`/`X-Key` 头部。
 
 ## API 与日志
 
@@ -183,17 +207,72 @@ API_BASE_URL=http://localhost:8000 .venv/bin/python ui/gradio_app.py
 - `POST /query`：`{"query": "关键词", "top_k": 5}` 返回带 `thumbnail`/`audio_path`/`video_path` 的命中分块。
 - `GET /health`：基础探活。
 
+### 身份认证与响应封装
+
+- 默认开启 `API_AUTH_REQUIRED`，所有 API 必须附带 `X-Appid` 与 `X-Key` 头部；头部值会与 `app_secrets_path` 中的凭据匹配，可通过 `app/core/security.py` 的 `CredentialStore` 签发或吊销。
+- 成功请求遵循 `TaskResponse`（`task_id`/`status`/`detail`/`result`）或 `QueryResponse`（`query`/`issued_at`/`hits[]`）结构，方便前端消费。
+- 失败请求统一返回 `ErrorEnvelope`：
+
+```json
+{
+  "status": "failure",
+  "error_code": "ERR_AUTH_REQUIRED",
+  "error_status": 401,
+  "message": "Authentication is required",
+  "zh_message": "缺少认证信息",
+  "context": null
+}
+```
+
+这样前端/脚本可以根据 `error_code` 精确提示用户，例如认证失败、媒体过大或限流（`ERR_THROTTLED`）。
+
 ### 原子化任务编排
 
-Celery workflow 链路：
+Stage4 将流水线完全拆分为以下 7 个 Celery 任务，均在 `app/pipeline/stages/*.py` 中实现，并通过 `app/pipeline/celery_tasks.py` 动态串联：
 
-1. `pipeline.build_metadata`（IO 队列）：读取文件属性、拼装 `DocumentMetadata`。
-2. `pipeline.generate_chunks`（CPU 队列）：根据媒体类型抽帧/抽音并构建分块。
-3. `pipeline.generate_summary`（CPU 队列）：基于 chunks 文本调用阿里百炼/Qwen 生成摘要。
-4. `pipeline.persist_artifacts`（IO 队列）：生成 `Document`、写入 `data/final_instances/*.json` 并同步 MinIO。
-5. `pipeline.index_document`（CPU 队列）：写入 Elasticsearch/内存索引，Celery 任务结果即最终 JSON。
+1. `pipeline.validate_input`（`ingest_io`）：复用 `LimitChecker` 再次校验媒体体积/时长，确保后台队列可安全处理。
+2. `pipeline.build_metadata`（`ingest_io`）：调用 `_build_metadata` 生成 `DocumentMetadata`，写入上下文供后续阶段使用。
+3. `pipeline.generate_chunks`（`ingest_cpu`）：按 `processing_options` 调度音/视频处理器、Whisper/Bailian ASR，并序列化 `mm-schema` chunks。
+4. `pipeline.generate_summary`（`ingest_cpu`）：基于 chunk 文本构造摘要，默认走 Bailian/Qwen，失败时可自定义回退。
+5. `pipeline.vector_enrichment`（`ingest_cpu`）：为 chunk 写入向量统计信息与 `vector_provider`，当前默认透传 `vector_service` 的模型标识。
+6. `pipeline.persist_artifacts`（`ingest_io`）：借助 `build_document_payload` 保存最终 JSON，并同步 MinIO/记录落盘路径。
+7. `pipeline.index_document`（`ingest_cpu`）：写入 Elasticsearch 或内存索引，并回传 `indexed_chunks` 计数。
 
-`/tasks/{task_id}` 会实时查询 Celery AsyncResult（queued → started → success/failed），失败时返回 Celery 的异常描述，成功时附带最终 `mm-schema` JSON。
+每个 Stage 在执行时都会向上下文注入阶段指标（`metrics.chunks`、`metrics.vector_chunks` 等）与落盘信息，最终由 `/tasks/{task_id}` 返回。链路中的任意异常都会立即更新 Celery 状态并通过 API `detail` 字段暴露。
+
+#### Stage4 验证示例
+
+1. 启动 FastAPI 与 Celery Worker：
+   ```bash
+   ./start_server.sh api
+   ./start_server.sh celery
+   ```
+2. 使用示例凭据（`app_secrets.json` 中的 `demo/demo-secret`）触发一次本地文件处理：
+   ```bash
+   curl -s -X POST http://127.0.0.1:8000/ingest \
+     -H 'Content-Type: application/json' \
+     -H 'X-Appid: demo' \
+     -H 'X-Key: demo-secret' \
+     -d '{
+       "media_type": "video",
+       "source_path": "/home/mm-rag/data/raw/<your-file>.mp4",
+       "metadata": {
+         "title": "Stage4 Validation",
+         "tags": ["demo", "stage4"],
+         "custom_attributes": {"source": "manual-test"}
+       }
+     }'
+   ```
+   返回 `task_id` 后可根据需要重复调用 `/ingest/upload` 上传新素材。
+3. 轮询任务与日志：
+   ```bash
+   curl -s -H 'X-Appid: demo' -H 'X-Key: demo-secret' \
+     http://127.0.0.1:8000/tasks/<task_id> | jq
+
+   curl -s -H 'X-Appid: demo' -H 'X-Key: demo-secret' \
+     http://127.0.0.1:8000/logs/<task_id> | jq
+   ```
+   `status` 变为 `success` 后，可到 `data/final_instances/<task_id>.json` 与 `data/logs/pipeline.log` 比对 Stage4 输出与性能信息。
 
 ## MinIO 同步说明
 
@@ -226,6 +305,7 @@ Celery workflow 链路：
 
 | 版本 | 日期 | 亮点 | 下载 |
 | --- | --- | --- | --- |
+| v0.3.0 | 2025-12-06 | Stage4：七段式 Celery 流水线、认证/日志文档更新、Gradio Chatbot 修复 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.3.0.zip) |
 | v0.2.0 | 2025-12-05 | 引入 `start/stop/show_server.sh` 一键脚本、Celery/Flower 健康检查、可切换的 Bailian/Ollama 向量服务、`.env`/日志文档完善。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.2.0.zip) |
 | v0.1.0 | 2025-11-28 | 首次公开版本：包含 FastAPI + Gradio、MinIO 同步、启动脚本与任务/日志 API。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.1.0.zip) |
 

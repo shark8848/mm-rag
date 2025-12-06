@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-import time
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.logging_utils import get_pipeline_logger, log_timing
-
 from app.config import settings
-from app.models.mm_schema import Chunk, Document, DocumentMetadata, SourceInfo
+from app.logging_utils import get_pipeline_logger
+from app.models.mm_schema import Chunk, DocumentMetadata, SourceInfo
 from app.processors.audio import build_audio_chunks
 from app.processors.video import build_video_chunks
-from app.services import storage
 from app.services.bailian import bailian_client
-from app.services.search_client import search_client
 
 logger = get_pipeline_logger("pipeline.ingest")
 summary_logger = get_pipeline_logger("pipeline.summary")
@@ -101,56 +96,3 @@ def _build_summary(chunks: List[Chunk], title: str) -> Dict[str, Any]:
     except Exception:
         summary_logger.exception("Summary generation failed for %s, fallback", title)
         return fallback
-
-
-def process_document(
-    source_path: Path,
-    media_type: str,
-    user_metadata: Dict[str, Any],
-    processing_options: Optional[Dict[str, Any]] = None,
-) -> Document:
-    document_id = user_metadata.get("document_id") or str(uuid.uuid4())
-    metadata = _build_metadata(source_path, user_metadata)
-    proc_opts = processing_options or {}
-
-    start = time.time()
-    logger.info(
-        "Processing document %s (%s) from %s", document_id, media_type, source_path,
-    )
-    with log_timing(logger, f"Chunk generation for {document_id} ({media_type})"):
-        chunks = _dispatch_chunks(media_type, source_path, document_id, proc_opts)
-    logger.info("Generated %d %s chunks for %s", len(chunks), media_type, document_id)
-    metadata.total_chunks = len(chunks)
-
-    with log_timing(summary_logger, f"Summary generation for {document_id}"):
-        document_summary = _build_summary(chunks, metadata.title)
-
-    document = Document(
-        document_id=document_id,
-        document_metadata=metadata,
-        chunks=chunks,
-        document_summary=document_summary,
-    )
-
-    summary_points = len((document.document_summary or {}).get("key_points", []))
-    logger.info("Document %s summary ready with %d key points", document_id, summary_points)
-
-    duration = time.time() - start
-    for chunk in document.chunks:
-        chunk.processing |= {
-            "pipeline_version": settings.pipeline_version,
-            "processing_time": duration,
-        }
-
-    payload = document.model_dump(mode="json")
-    with log_timing(logger, f"Persisting structured output for {document_id}"):
-        artifact_path = storage.persist_json(document_id, payload)
-    logger.info("Persisted document %s output to %s", document_id, artifact_path)
-    logger.info("Indexing document %s and %d chunks into search backend", document_id, len(payload["chunks"]))
-    with log_timing(logger, f"Indexing payload for {document_id}"):
-        search_client.index_document(payload)
-        for chunk in payload["chunks"]:
-            search_client.index_chunk(chunk, payload)
-    logger.info("Completed indexing for document %s", document_id)
-    logger.info("Pipeline run for %s finished in %.2fs", document_id, duration)
-    return document
