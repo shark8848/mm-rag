@@ -46,4 +46,10 @@ def build_document_payload(context: Context) -> Dict[str, Any]:
         processing["processing_time"] = duration
         processing["pipeline_version"] = settings.pipeline_version
         chunk.processing = processing
-    return document.model_dump(mode="json")
+    payload = document.model_dump(mode="json")
+    # Preserve extras and artifacts from context
+    if "extras" in context:
+        payload["extras"] = context["extras"]
+    if "artifacts" in context:
+        payload.setdefault("extras", {})["artifacts"] = context["artifacts"]
+    return payload

@@ -19,6 +19,9 @@ START_FLOWER=${START_FLOWER:-true}
 FLOWER_STRICT=${FLOWER_STRICT:-false}
 FLOWER_HEALTH_RETRIES=${FLOWER_HEALTH_RETRIES:-$HEALTH_RETRIES}
 FLOWER_ADDRESS=${FLOWER_ADDRESS:-0.0.0.0}
+MINERU_HEALTH_CHECK=${MINERU_HEALTH_CHECK:-true}
+MINERU_HEALTH_PATH=${MINERU_HEALTH_PATH:-/docs}
+MINERU_STRICT=${MINERU_STRICT:-false}
 
 SERVICES=($@)
 if [[ ${#SERVICES[@]} -eq 0 ]]; then
@@ -92,6 +95,23 @@ PY
   IFS='|' read -r AUTH_REQUIRED AUTH_SECRETS <<<"$AUTH_OUTPUT"
 fi
 
+MINERU_ENABLED=0
+MINERU_BASE=""
+MINERU_PARSE=""
+PDF_PARSER_SELECTED="mineru"
+if [[ -x "$VENV_BIN/python" ]]; then
+  if MINERU_OUTPUT=$("$VENV_BIN/python" - <<'PY'
+from app.config import settings
+base = (settings.mineru_api_base or '').rstrip('/')
+parse_path = settings.mineru_parse_path or ''
+parser = (settings.pdf_parser or 'mineru').lower()
+print(f"{int(bool(base))}|{base}|{parse_path}|{parser}")
+PY
+  ); then
+    IFS='|' read -r MINERU_ENABLED MINERU_BASE MINERU_PARSE PDF_PARSER_SELECTED <<<"$MINERU_OUTPUT"
+  fi
+fi
+
 # Simple HTTP readiness probe using curl (POSIX-friendly for wider shell support).
 wait_for_http() {
   name=$1
@@ -111,6 +131,27 @@ wait_for_http() {
   echo "[ERROR] $name did not become healthy at $url within ${retries}s" >&2
   return 1
 }
+
+if [[ "$MINERU_HEALTH_CHECK" == "true" && "$MINERU_ENABLED" == "1" ]]; then
+  parser_lower="${PDF_PARSER_SELECTED,,}"
+  if [[ "$parser_lower" == "mineru" ]]; then
+    HEALTH_PATH="$MINERU_HEALTH_PATH"
+    if [[ -n "$HEALTH_PATH" && "$HEALTH_PATH" != /* ]]; then
+      HEALTH_PATH="/$HEALTH_PATH"
+    fi
+    MINERU_HEALTH_URL="${MINERU_BASE}${HEALTH_PATH}"
+    echo "Checking MinerU service at ${MINERU_HEALTH_URL} (parse endpoint ${MINERU_PARSE:-/file_parse})"
+    if ! wait_for_http "MinerU" "$MINERU_HEALTH_URL" 5; then
+      if [[ "$MINERU_STRICT" == "true" ]]; then
+        echo "[ERROR] MinerU health check failed; aborting startup." >&2
+        exit 1
+      fi
+      echo "[WARN] MinerU health check failed; PDF ingestion may be unavailable." >&2
+    fi
+  else
+    echo "Skipping MinerU health probe because PDF_PARSER=${PDF_PARSER_SELECTED}"
+  fi
+fi
 
 # Stop existing services gracefully before starting new ones.
 if [[ -x "$ROOT_DIR/stop_server.sh" ]]; then

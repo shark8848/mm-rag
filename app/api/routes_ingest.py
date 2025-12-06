@@ -5,7 +5,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import ValidationError
@@ -76,14 +76,14 @@ def ingest(
 
 @router.post("/ingest/upload", response_model=TaskResponse)
 def ingest_upload(
-    media_type: str = Form(...),
+    media_type: Literal["audio", "video", "pdf"] = Form(...),
     metadata: str = Form("{}"),
     file: UploadFile = File(...),
     processing_options: Optional[str] = Form(None),
     credential: Credential = Depends(authenticate),
     checker: LimitChecker = Depends(get_limit_checker),
 ) -> TaskResponse:
-    if media_type not in {"audio", "video"}:
+    if media_type not in {"audio", "video", "pdf"}:
         raise APIError(get_error("ERR_MEDIA_UNSUPPORTED"))
     try:
         metadata_dict = json.loads(metadata)

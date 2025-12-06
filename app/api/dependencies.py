@@ -29,7 +29,9 @@ auth_config = AuthConfig(
 auth_manager = AuthManager(auth_config)
 
 limit_policy = LimitPolicy(
-    default=MediaLimit(max_size_mb=max(settings.audio_max_size_mb, settings.video_max_size_mb)),
+    default=MediaLimit(
+        max_size_mb=max(settings.audio_max_size_mb, settings.video_max_size_mb, settings.pdf_max_size_mb)
+    ),
     per_media={
         "audio": MediaLimit(
             max_size_mb=settings.audio_max_size_mb,
@@ -39,6 +41,7 @@ limit_policy = LimitPolicy(
             max_size_mb=settings.video_max_size_mb,
             max_duration_seconds=settings.video_max_duration_sec,
         ),
+        "pdf": MediaLimit(max_size_mb=settings.pdf_max_size_mb),
     },
     max_batch_files=settings.upload_max_files,
     max_batch_size_mb=settings.upload_max_batch_mb,

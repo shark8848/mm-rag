@@ -55,7 +55,11 @@ class TaskStore:
             record.detail = str(async_result.info)
         elif async_result.successful():
             payload = async_result.result or {}
-            record.result = payload.get("document") or payload
+            # Preserve the full context including extras/artifacts
+            if isinstance(payload, dict):
+                record.result = payload
+            else:
+                record.result = {"data": payload}
             record.detail = None
         with self._lock:
             self._tasks[task_id] = record

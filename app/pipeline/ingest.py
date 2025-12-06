@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import settings
 from app.logging_utils import get_pipeline_logger
 from app.models.mm_schema import Chunk, DocumentMetadata, SourceInfo
 from app.processors.audio import build_audio_chunks
+from app.processors.pdf import build_pdf_chunks
 from app.processors.video import build_video_chunks
 from app.services.bailian import bailian_client
 
@@ -42,11 +43,14 @@ def _dispatch_chunks(
     source_path: Path,
     base_chunk_id: str,
     processing_options: Optional[Dict[str, Any]] = None,
-):
+) -> Tuple[List[Chunk], Dict[str, Any]]:
+    extras: Dict[str, Any] = {}
     if media_type == "audio":
-        return build_audio_chunks(source_path, base_chunk_id)
+        return build_audio_chunks(source_path, base_chunk_id), extras
     if media_type == "video":
-        return build_video_chunks(source_path, base_chunk_id, processing_options)
+        return build_video_chunks(source_path, base_chunk_id, processing_options), extras
+    if media_type == "pdf":
+        return build_pdf_chunks(source_path, base_chunk_id, processing_options)
     raise UnsupportedMediaType(media_type)
 
 

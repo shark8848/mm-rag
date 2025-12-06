@@ -20,7 +20,26 @@ class ChunkStage(Stage):
         document_id = context["document_id"]
         media_type = context["media_type"]
         options = context.get("processing_options")
-        chunks = _dispatch_chunks(media_type, source_path, document_id, options)
+        dispatched = _dispatch_chunks(media_type, source_path, document_id, options)
+        if isinstance(dispatched, tuple):
+            chunks, extras = dispatched
+        else:  # backward compatibility
+            chunks, extras = dispatched, {}
         context["chunks"] = serialize_chunks(chunks)
         context.setdefault("metrics", {})["chunks"] = len(chunks)
+        if extras:
+            from app.logging_utils import get_pipeline_logger
+            logger = get_pipeline_logger("pipeline.chunks")
+            artifacts = extras.get("artifacts", {})
+            if artifacts:
+                logger.info("ChunkStage received artifacts: %s", list(artifacts.keys()))
+            for key, value in extras.items():
+                if key == "metrics" and isinstance(value, dict):
+                    context.setdefault("metrics", {}).update(value)
+                elif isinstance(value, dict) and key in {"artifacts"}:
+                    context.setdefault(key, {}).update(value)
+                else:
+                    context[key] = value
+            if "artifacts" in context:
+                logger.info("ChunkStage context now has artifacts: %s", list(context["artifacts"].keys()))
         return context

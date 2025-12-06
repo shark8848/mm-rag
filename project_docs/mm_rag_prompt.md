@@ -7,6 +7,7 @@
 
 ### 目标
 - 端到端解析音/视频：抽取关键帧、音频文本、摘要与元数据，按 `mm-schema` 输出结构化 JSON，并落地磁盘 + ES。
+- PDF 文档解析：通过插件（MinerU / Local）拆解 PDF，统一回传结构化 chunk 并与音视频结果同仓储。
 - 双入口供给：FastAPI REST + Celery 异步任务，支持批量与实时混合场景。
 - 嵌入服务解耦：向量化独立为可配置服务（Bailian 或本地 Ollama），通过抽象接口对接。
 - 完整编排：通过 `start/stop/show_server.sh`、Celery worker、Flower 监控和日志 API 形成可观测的流水线。
@@ -47,6 +48,7 @@
 | 能力 | 描述 |
 | --- | --- |
 | 媒体导入 | 支持上传或引用本地路径，自动复制到 `data/raw/` 并记录元数据。 |
+| PDF 解析插件 | 通过 MinerU 云端或 Local 插件解析 PDF，获取结构化文本、图像与版式信息，并将结果推送到对象存储供下游消费。 |
 | 音视频解析 | 通过 FFmpeg 抽帧/抽音、Whisper 或 DashScope Paraformer ASR、关键帧生成与时间轴切分。 |
 | 多模态摘要 | 调用 Qwen/Qwen-VL（DashScope）生成段落摘要、标签与检索提示。 |
 | 向量化服务 | `EmbeddingProvider` 封装 Bailian API 或本地 Ollama，支持切换、超时控制、错误回退。 |
@@ -56,13 +58,23 @@
 
 ---
 
+## PDF 解析（MinerU 集成）
+
+1. **触发方式**：当任务 `media_type=pdf` 或上传扩展名为 `.pdf` 时，将文件放入 `data/raw/` 并调用 MinerU API。
+2. **API 调用**：通过 MinerU HTTP API 上传或传递对象存储路径，附带 `minerU_api_key`、回调/轮询参数以及分段策略（按章节/页）。
+3. **结果落地**：解析完成后生成结构化文本、表格、图片标注等数据，映射为 `mm-schema` 的 chunk，并将原始 MinerU JSON 与转换后的结果同步到对象存储（MinIO/S3），供下游使用。
+4. **错误处理**：若 MinerU 超时或失败，应记录结构化错误码，自动重试可配置，最终回退至本地 PDF 解析器（可选）。
+5. **链路对齐**：PDF chunk 与音视频 chunk 共享向量化、摘要、索引阶段，确保检索层统一。
+
+> MinerU 结果推送对象存储后需返回可访问的 `storage_uri`，并在 `TaskResponse` 中带上 `pdf_payload_path` 便于后续审计。
+
 ## 流水线编排
 
-1. **入口**：`POST /ingest` 或 Gradio 上传触发任务，写入 Celery `ingest_io` 队列。
+1. **入口**：`POST /ingest` 或 Gradio 上传触发任务，写入 Celery `ingest_io` 队列，PDF 媒体将附带 MinerU 解析参数。
 2. **build_metadata（IO 队列）**：收集文件属性、检测媒体类型、准备 `DocumentMetadata`。
-3. **generate_chunks（CPU 队列）**：FFmpeg 场景切分 + 音频抽取，Whisper/DashScope ASR，生成文本/关键帧片段。
+3. **generate_chunks（CPU 队列）**：FFmpeg 场景切分 + 音频抽取，Whisper/DashScope ASR；当 `media_type=pdf` 时调用 MinerU API，轮询结果并将结构化 chunk 写回上下文。
 4. **generate_summary（CPU 队列）**：Qwen/Qwen-VL 根据 chunks 输出摘要、标签。
-5. **persist_artifacts（IO 队列）**：写入 `data/intermediate`、`data/final_instances`，可同步 MinIO。
+5. **persist_artifacts（IO 队列）**：写入 `data/intermediate`、`data/final_instances`，并将 MinerU 原始/转换结果推送对象存储以供下游系统读取，仍可同步 MinIO。
 6. **index_document（CPU 队列）**：调用独立向量服务完成嵌入，将结果写入 Elasticsearch 或内存索引。
 7. **任务完成**：`/tasks/{task_id}` 返回最终 `mm-schema` JSON，Gradio UI 与日志 API 展示可观测信息。
 
@@ -115,6 +127,11 @@ MINIO_ENDPOINT=http://localhost:9000
 MINIO_BUCKET=mm-rag
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
+
+# PDF (MinerU)
+MINERU_API_BASE=https://api.mineru.example.com
+MINERU_API_KEY=sk-mineru-xxx
+MINERU_CALLBACK_URL=https://your-api/callbacks/mineru
 ```
 
 ---
@@ -161,6 +178,7 @@ MINIO_SECRET_KEY=minioadmin
 4. **媒体拆解链路**：必须输出符合 `mm-schema.json` 的结构，包括关键帧、音频片段、文本段落、摘要、索引字段。
 5. **日志与观测**：确保 `/logs/*` API、`pipeline.log`、花式监控（Flower、health check）可追踪每个任务；提供必要告警/降级策略。
 6. **安全与限额**：实现 appid/key 认证开关、媒体体积/时长限制、错误码规范化，并在 Gradio/UI/脚本中同步这些约束。
-7. **测试与文档**：补充 README/项目文档、示例配置、脚本用法，确保团队能快速部署与扩展。
+7. **PDF + MinerU**：支持 `media_type=pdf` 任务使用 MinerU API 解析并落地结果，解析后的 JSON/多模态内容需推送对象存储供下游消费，并与音视频流程共享摘要、向量与索引环节。
+8. **测试与文档**：补充 README/项目文档、示例配置、脚本用法，确保团队能快速部署与扩展。
 
 请依据以上提示词输出代码、脚本、配置与说明，优先保证音视频解析准确性、服务可观测性、向量化解耦以及可维护的编排能力。

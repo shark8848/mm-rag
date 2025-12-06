@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, Optional
 from urllib.parse import urlparse
@@ -169,3 +170,30 @@ def persist_json(document_id: str, payload: dict) -> Path:
     logger.info("Persisted final schema artifact for %s at %s", document_id, target)
     _sync_to_minio(target, "final_instances")
     return target
+
+
+def persist_auxiliary_json(document_id: str, payload: dict, category: str = "mineru") -> Path:
+    """Persist intermediate JSON artifacts (e.g., MinerU payloads) under data/intermediate."""
+
+    target_dir = settings.data_root / "intermediate" / category
+    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    buffer = BytesIO(data)
+    buffer.seek(0)
+    return persist_intermediate(buffer, target_dir, f"{document_id}.json")
+
+
+def persist_auxiliary_bytes(
+    document_id: str,
+    content: bytes,
+    suffix: str = ".bin",
+    category: str = "mineru",
+) -> Path:
+    """Persist arbitrary binary artifacts (e.g., MinerU ZIP results) under data/intermediate."""
+
+    if not suffix.startswith("."):
+        suffix = f".{suffix}"
+    target_dir = settings.data_root / "intermediate" / category
+    buffer = BytesIO(content)
+    buffer.seek(0)
+    file_name = f"{document_id}{suffix}"
+    return persist_intermediate(buffer, target_dir, file_name)

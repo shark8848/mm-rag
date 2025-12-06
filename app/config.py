@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     upload_max_batch_mb: float = Field(4096.0, env="UPLOAD_MAX_BATCH_MB")
     audio_max_size_mb: float = Field(2048.0, env="AUDIO_MAX_SIZE_MB")
     video_max_size_mb: float = Field(4096.0, env="VIDEO_MAX_SIZE_MB")
+    pdf_max_size_mb: float = Field(512.0, env="PDF_MAX_SIZE_MB")
     audio_max_duration_sec: float | None = Field(21600.0, env="AUDIO_MAX_DURATION_SEC")
     video_max_duration_sec: float | None = Field(10800.0, env="VIDEO_MAX_DURATION_SEC")
 
@@ -60,6 +61,16 @@ class Settings(BaseSettings):
     minio_access_key: str | None = Field("minioadmin", env="MINIO_ACCESS_KEY")
     minio_secret_key: str | None = Field("minioadmin", env="MINIO_SECRET_KEY")
     minio_bucket: str = Field("mm-rag", env="MINIO_BUCKET")
+
+    mineru_api_base: str | None = Field("http://127.0.0.1:8000", env="MINERU_API_BASE")
+    mineru_api_key: str | None = Field(None, env="MINERU_API_KEY")
+    mineru_timeout: int = Field(1200, env="MINERU_TIMEOUT")
+    mineru_callback_url: str | None = Field(None, env="MINERU_CALLBACK_URL")
+    mineru_parse_path: str = Field("/file_parse", env="MINERU_PARSE_PATH")
+    mineru_health_check: bool = Field(True, env="MINERU_HEALTH_CHECK")
+    mineru_health_path: str = Field("/docs", env="MINERU_HEALTH_PATH")
+    mineru_strict: bool = Field(False, env="MINERU_STRICT")
+    pdf_parser: str = Field("mineru", env="PDF_PARSER")
 
     data_root: Path = DATA_DIR
     raw_storage_dir: Path = BASE_DIR / "data" / "raw"

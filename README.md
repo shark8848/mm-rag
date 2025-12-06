@@ -5,6 +5,9 @@
 ## 功能亮点
 
 - **多模态解析**：FFmpeg 抽帧 + Whisper/DashScope ASR，按照 `mm-schema.json` 输出 keyframe、音频、文本段落。
+- **PDF 文档解析**：通过 MinerU API 拆解 PDF，生成结构化文本 chunk，并将 MinerU 原始 JSON 推送到对象存储，供下游直接消费。
+- **PDF Bbox 可视化**：Gradio UI 集成 MinerU bbox 渲染，使用 pypdf + reportlab 在 PDF 上绘制彩色边界框，支持分页浏览，可直观查看表格、图片、标题、文本、公式、列表等元素的检测结果和阅读顺序。
+- **插件化 PDF 处理**：`PDF_PARSER=mineru|local`，可在 MinerU 云端与本地 pdfminer 解析之间热切换，接口与上下文输出保持一致。
 - **灵活存储**：磁盘落地原始/中间/最终 JSON，Elasticsearch 存储分块并附带 `thumbnail`、`video_path`、`audio_path` 方便前端回放；若 ES 不可用自动退回内存索引。
 - **任务可观测性**：基于 Celery + Redis 的异步队列，`/tasks/{task_id}` 会实时拉取 Celery 状态，另有 `/logs/{task_id}`/`/logs/tail` 暴露细粒度日志。
 - **交互式检索**：Gradio Chatbot 以对话形式呈现检索命中，并可直接播放命中视频/音频和浏览关键帧。
@@ -21,6 +24,8 @@
 | DashScope (阿里百炼) | Paraformer ASR、向量、Qwen-VL/LLM 能力的云端入口 |
 | Elasticsearch 8.x | 持久化检索分块，支持文本+媒体路径返回 |
 | Gradio | 提供上传、日志监控、混合检索与媒体播放的前端控制台 |
+| PDF Parser 插件 | MinerU/Local 等解析插件统一暴露 `PdfParser` 接口，保证 PDF 处理能力可插拔 |
+| MinerU PDF API | 解析 PDF 并返回结构化文本/版式 JSON，供 PDF 任务构建 Chunk 与落地对象存储 |
 | MinIO | 可选对象存储，用于同步 `data/` 目录的原始/中间/最终产物 |
 
 ## 项目结构
@@ -45,6 +50,7 @@ mm-schema.json           # 数据规范
 
 - `data/raw/`：原始素材副本（上传或引用的源文件）。
 - `data/intermediate/audio|video/`：抽取的 WAV、切分片段、缩略图等中间产物。
+- `data/intermediate/pdf_*/`：PDF 解析插件输出的原始 JSON，自动同步到对象存储。
 - `data/final_instances/`：最终符合 `mm-schema.json` 的 JSON，便于审计或重放。
 - `data/logs/pipeline.log`：后端统一日志源，供 `/logs/*` 接口与 UI 读取。
 
@@ -93,6 +99,7 @@ UPLOAD_MAX_FILES=4
 UPLOAD_MAX_BATCH_MB=4096
 AUDIO_MAX_SIZE_MB=2048
 VIDEO_MAX_SIZE_MB=4096
+PDF_MAX_SIZE_MB=512
 AUDIO_MAX_DURATION_SEC=21600
 VIDEO_MAX_DURATION_SEC=10800
 
@@ -102,6 +109,17 @@ MINIO_ENDPOINT=http://localhost:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=mm-rag
+
+# MinerU PDF 解析
+MINERU_API_BASE=http://127.0.0.1:8000
+MINERU_PARSE_PATH=/file_parse
+MINERU_API_KEY=
+MINERU_CALLBACK_URL=
+MINERU_TIMEOUT=60
+MINERU_HEALTH_PATH=/docs
+MINERU_HEALTH_CHECK=true
+MINERU_STRICT=false
+PDF_PARSER=mineru
 
 # Celery / Redis
 CELERY_BROKER_URL=redis://localhost:6379/0
@@ -193,19 +211,50 @@ API_APP_KEY=demo-secret \
 ```
 
 - **上传处理** 页签：上传音/视频、选择抽帧策略（`interval`/`scene`）、查看任务状态与实时日志。
+- **PDF 管道** 页签：上传 PDF 文档，配置 MinerU 解析参数（后端、语言、公式/表格识别等），解析完成后点击"🔄 加载分页预览"查看带彩色 bbox 标注的 PDF 页面，支持滑块翻页浏览。
 - **混合检索** 页签：输入查询后由 Chatbot 返回命中段落，同时展示首个命中的视频、音频、关键帧画廊，便于复核。
-- UI 默认每 2 秒轮询 `/tasks/{task_id}` 与 `/logs/{task_id}`，若任务专属日志缺失则自动降级到 `/logs/tail`。
+- UI 默认轮询 `/tasks/{task_id}` 与 `/logs/{task_id}`，若任务专属日志缺失则自动降级到 `/logs/tail`。
 - FastAPI 开启认证时（默认），请在启动 UI 或调用脚本前设置 `API_APP_ID`、`API_APP_KEY`，值需与 `app_secrets_path` 中的凭据一致，客户端会自动为所有请求附加 `X-Appid`/`X-Key` 头部。
+
+#### PDF Bbox 渲染说明
+
+Gradio UI 的"PDF 管道"页签提供了 PDF 可视化预览功能，基于 MinerU 的 `middle.json` 中的 bbox 坐标数据：
+
+1. **颜色图例**：
+   - 📊 表格(table): 黄色
+   - 🖼️ 图片(image): 绿色
+   - 📑 标题(title): 蓝色
+   - 📝 文本(text): 紫色
+   - 🔢 公式(equation): 绿色
+   - 📋 列表(list): 深绿色
+
+2. **操作流程**：
+   - 上传 PDF 并点击"提交 PDF 处理"
+   - 等待状态变为"success"
+   - 点击"🔄 加载分页预览"按钮（按需加载，避免启动卡顿）
+   - 使用滑块切换页码查看不同页面的标注
+
+3. **技术实现**：
+   - 使用 `app/utils/draw_bbox.py` 中的 MinerU 官方 bbox 绘制函数
+   - 通过 `pypdf` 和 `reportlab` 在原始 PDF 上叠加彩色矩形和阅读顺序编号
+   - 单页按需渲染，避免大文档内存占用
+
+4. **相关文档**：
+   - 完整实现说明：`BBOX_RENDERING_IMPLEMENTATION.md`
+   - Artifacts 传递修复：`MINERU_ARTIFACTS_FIX.md`
+   - 启动优化记录：`STARTUP_FREEZE_FIX.md`
 
 ## API 与日志
 
-- `POST /ingest`：基于绝对路径触发处理。
-- `POST /ingest/upload`：上传媒体并附带 `metadata` / `processing_options` JSON。
+- `POST /ingest`：基于绝对路径触发处理，`media_type` 支持 `audio`/`video`/`pdf`，PDF 会自动走 MinerU Celery 流程。
+- `POST /ingest/upload`：上传媒体并附带 `metadata` / `processing_options` JSON，同样支持 `media_type=pdf`。
 - `GET /tasks/{task_id}`：查询任务状态与最终 `mm-schema` 结果。
 - `GET /logs/{task_id}`：返回包含 `task_id` 的最新日志片段。
 - `GET /logs/tail`：全局日志尾部（默认 200 行），供 UI 回退或手动排障。
 - `POST /query`：`{"query": "关键词", "top_k": 5}` 返回带 `thumbnail`/`audio_path`/`video_path` 的命中分块。
 - `GET /health`：基础探活。
+
+> PDF 任务的 MinerU 定制参数可通过 `processing_options.mineru` 传入（例如 `{"mineru": {"split_mode": "page"}}`），服务会透传给 MinerU API。
 
 ### 身份认证与响应封装
 
@@ -232,7 +281,7 @@ Stage4 将流水线完全拆分为以下 7 个 Celery 任务，均在 `app/pipel
 
 1. `pipeline.validate_input`（`ingest_io`）：复用 `LimitChecker` 再次校验媒体体积/时长，确保后台队列可安全处理。
 2. `pipeline.build_metadata`（`ingest_io`）：调用 `_build_metadata` 生成 `DocumentMetadata`，写入上下文供后续阶段使用。
-3. `pipeline.generate_chunks`（`ingest_cpu`）：按 `processing_options` 调度音/视频处理器、Whisper/Bailian ASR，并序列化 `mm-schema` chunks。
+3. `pipeline.generate_chunks`（`ingest_cpu`）：按 `processing_options` 调度音/视频处理器、Whisper/Bailian ASR，并在 `media_type=pdf` 时调用 MinerU 把 PDF 拆解为结构化 chunk；统一序列化 `mm-schema` 片段。
 4. `pipeline.generate_summary`（`ingest_cpu`）：基于 chunk 文本构造摘要，默认走 Bailian/Qwen，失败时可自定义回退。
 5. `pipeline.vector_enrichment`（`ingest_cpu`）：为 chunk 写入向量统计信息与 `vector_provider`，当前默认透传 `vector_service` 的模型标识。
 6. `pipeline.persist_artifacts`（`ingest_io`）：借助 `build_document_payload` 保存最终 JSON，并同步 MinIO/记录落盘路径。
@@ -284,6 +333,13 @@ Stage4 将流水线完全拆分为以下 7 个 Celery 任务，均在 `app/pipel
 - 处理完成后可在 MinIO 控制台检索 `intermediate/audio/` 与 `intermediate/video/` 前缀，确认音频与关键帧已经上传。
 - MinIO 端可使用 `MINIO_OPTS="--address :9000 --console-address :9001"` 等参数启动，默认账号/密码为 `minioadmin/minioadmin`。
 
+## PDF 解析插件
+
+- `PDF_PARSER` 选择 `mineru`（默认）或 `local`。MinerU 插件调用外部服务默认直连 `http://127.0.0.1:8000/file_parse`（可用 `MINERU_API_BASE` + `MINERU_PARSE_PATH` 覆盖），本地插件则使用 pdfminer/纯文本回退，保证无外部依赖也能产出 Chunk。
+- 插件输出统一的结构化 payload，会被持久化到 `data/intermediate/pdf_<parser>/<document_id>.json`，并同步到对象存储；落盘路径可在任务 `artifacts.pdf_payload_path` 字段中查看。
+- `processing_options.mineru` 仅在选择 MinerU 插件时生效，用于透传页范围、表格格式等参数；若后续扩展更多插件，也可复用同一接口。
+- `start_server.sh` 在启用 MinerU 插件时会预先探测其健康（可通过 `MINERU_HEALTH_CHECK`/`MINERU_STRICT` 控制），避免 PDF 任务落到离线服务上。
+
 ## 典型流程
 
 1. 启动 FastAPI 与 Gradio 控制台，确保 `API_BASE_URL` 指向后端。
@@ -305,6 +361,7 @@ Stage4 将流水线完全拆分为以下 7 个 Celery 任务，均在 `app/pipel
 
 | 版本 | 日期 | 亮点 | 下载 |
 | --- | --- | --- | --- |
+| v0.4.0 | 2025-12-06 | MinerU PDF Bbox 可视化：Gradio UI 集成 bbox 渲染，支持分页预览、彩色元素标注和阅读顺序显示；优化 UI 导航，移除冗余翻页按钮和页码显示；修复 artifacts 传递、启动卡顿和中间 JSON 键错误等多个问题。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.4.0.zip) |
 | v0.3.0 | 2025-12-06 | Stage4：七段式 Celery 流水线、认证/日志文档更新、Gradio Chatbot 修复 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.3.0.zip) |
 | v0.2.0 | 2025-12-05 | 引入 `start/stop/show_server.sh` 一键脚本、Celery/Flower 健康检查、可切换的 Bailian/Ollama 向量服务、`.env`/日志文档完善。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.2.0.zip) |
 | v0.1.0 | 2025-11-28 | 首次公开版本：包含 FastAPI + Gradio、MinIO 同步、启动脚本与任务/日志 API。 | [源代码包](https://github.com/shark8848/mm-rag/archive/refs/tags/v0.1.0.zip) |

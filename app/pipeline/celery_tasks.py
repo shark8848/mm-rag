@@ -33,10 +33,19 @@ def _build_stage_instances() -> List[Stage]:
     from app.config import settings
 
     policy = LimitPolicy(
-        default=MediaLimit(max_size_mb=max(settings.audio_max_size_mb, settings.video_max_size_mb)),
+        default=MediaLimit(
+            max_size_mb=max(settings.audio_max_size_mb, settings.video_max_size_mb, settings.pdf_max_size_mb)
+        ),
         per_media={
-            "audio": MediaLimit(max_size_mb=settings.audio_max_size_mb, max_duration_seconds=settings.audio_max_duration_sec),
-            "video": MediaLimit(max_size_mb=settings.video_max_size_mb, max_duration_seconds=settings.video_max_duration_sec),
+            "audio": MediaLimit(
+                max_size_mb=settings.audio_max_size_mb,
+                max_duration_seconds=settings.audio_max_duration_sec,
+            ),
+            "video": MediaLimit(
+                max_size_mb=settings.video_max_size_mb,
+                max_duration_seconds=settings.video_max_duration_sec,
+            ),
+            "pdf": MediaLimit(max_size_mb=settings.pdf_max_size_mb),
         },
     )
     return [
