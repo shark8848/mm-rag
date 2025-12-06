@@ -7,7 +7,10 @@ elasticsearch>=8.13.0
 openai-whisper>=20231117
 requests>=2.32.0
 gradio>=4.40.0
+gradio-pdf==0.0.22
 minio>=7.2.0
 celery[redis]>=5.4.0
 redis>=5.0.0
 flower>=2.0.0
+pypdf>=4.0.0
+reportlab>=4.0.0
